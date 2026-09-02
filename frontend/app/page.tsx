@@ -1,13 +1,17 @@
 import { ErpClient } from "@/app/erp-client";
+import { getSessionUser } from "@/lib/session";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
-export default function Home() {
+export default async function Home() {
+  const session = await getSessionUser();
+  if (!session) redirect("/login");
   return (
     <ErpClient
       user={{
-        name: "Owner TB Permata",
-        email: "owner@tbpermatagroup.id",
+        name: session.displayName,
+        email: session.email,
       }}
     />
   );
