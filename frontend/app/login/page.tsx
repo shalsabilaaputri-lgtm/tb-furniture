@@ -16,7 +16,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
         </div>
         <h2 className="text-2xl font-bold text-slate-950">Masuk ke aplikasi</h2>
         <p className="mt-1 text-sm text-slate-500">Gunakan akun yang diberikan oleh owner.</p>
-        {error && <div className="mt-5 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-700">Email atau kata sandi salah.</div>}
+        {error && <div className="mt-5 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-700">{error === "config" ? "Login belum dikonfigurasi oleh administrator." : "Email atau kata sandi salah."}</div>}
         <form action="/api/auth/login" method="post" className="mt-6 space-y-4">
           <label className="block text-sm font-semibold text-slate-700">Email<div className="relative mt-2"><Mail className="absolute left-3 top-3.5 size-4 text-slate-400"/><input name="email" type="email" autoComplete="username" required className="h-11 w-full rounded-xl border border-slate-300 pl-10 pr-3 outline-none focus:border-red-700 focus:ring-2 focus:ring-red-100" placeholder="owner@tbpermatagroup.id"/></div></label>
           <label className="block text-sm font-semibold text-slate-700">Kata sandi<div className="relative mt-2"><LockKeyhole className="absolute left-3 top-3.5 size-4 text-slate-400"/><input name="password" type="password" autoComplete="current-password" required className="h-11 w-full rounded-xl border border-slate-300 pl-10 pr-3 outline-none focus:border-red-700 focus:ring-2 focus:ring-red-100" placeholder="Masukkan kata sandi"/></div></label>
