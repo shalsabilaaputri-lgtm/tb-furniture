@@ -1,0 +1,11 @@
+{
+  "name": "tb-furniture-vercel",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "build": "npm --prefix frontend run build:vercel"
+  }
+}
