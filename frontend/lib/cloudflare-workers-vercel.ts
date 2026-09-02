@@ -1,6 +1,10 @@
 // Compatibility module for the first Vercel build. The production database
 // adapter replaces this binding when PostgreSQL is connected.
-type D1Result<T> = { results: T[]; success?: boolean; meta?: unknown };
+type D1Result<T> = {
+  results: T[];
+  success?: boolean;
+  meta: { changes?: number; [key: string]: unknown };
+};
 
 type D1PreparedStatement = {
   bind: (...values: unknown[]) => D1PreparedStatement;
