@@ -2,10 +2,18 @@
   "name": "tb-furniture-vercel",
   "version": "1.0.0",
   "private": true,
+  "workspaces": [
+    "frontend"
+  ],
   "engines": {
     "node": ">=22.13.0"
   },
   "scripts": {
-    "build": "npm --prefix frontend run build:vercel"
+    "build": "npm --workspace frontend run build:vercel"
+  },
+  "dependencies": {
+    "next": "16.2.6",
+    "react": "19.2.6",
+    "react-dom": "19.2.6"
   }
 }
