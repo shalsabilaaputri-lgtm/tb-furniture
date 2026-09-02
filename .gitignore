@@ -1,0 +1,27 @@
+# Dependencies and builds
+node_modules/
+dist/
+.next/
+.sites-runtime/
+.wrangler/
+coverage/
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Database backups and local data
+backups/
+*.dump
+*.dump.sha256
+*.sqlite
+*.sqlite3
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+*.log

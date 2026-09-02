@@ -1,0 +1,48 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1788282890774,
+      "tag": "0000_furry_sway",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1788303130663,
+      "tag": "0001_silly_yellow_claw",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1788314844351,
+      "tag": "0002_cold_tomas",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1788315455550,
+      "tag": "0003_lethal_jack_flag",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1788316753323,
+      "tag": "0004_true_imperial_guard",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1788327294002,
+      "tag": "0005_bitter_mandrill",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,0 +1,107 @@
+@baseUrl = http://localhost:4000/api/v1
+@accessToken = GANTI_ACCESS_TOKEN
+@branchId = UUID_CABANG
+@warehouseId = UUID_GUDANG
+@productId = UUID_PRODUK
+@productUnitId = UUID_SATUAN_JUAL_PRODUK
+
+### Stok per cabang
+GET {{baseUrl}}/stock?branchId={{branchId}}
+Authorization: Bearer {{accessToken}}
+
+### Barang masuk
+POST {{baseUrl}}/stock/adjustments
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "branchId": "{{branchId}}",
+  "warehouseId": "{{warehouseId}}",
+  "productId": "{{productId}}",
+  "type": "IN",
+  "quantity": 100,
+  "reason": "Pembelian supplier"
+}
+
+### Transaksi kasir dengan diskon nominal dan ongkir
+POST {{baseUrl}}/sales
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "branchId": "{{branchId}}",
+  "warehouseId": "{{warehouseId}}",
+  "items": [
+    { "productUnitId": "{{productUnitId}}", "quantity": 100 }
+  ],
+  "discountAmount": 50000,
+  "shippingDistanceKm": 8,
+  "paymentMethod": "CASH"
+}
+
+### Daftar piutang
+GET {{baseUrl}}/receivables?branchId={{branchId}}
+Authorization: Bearer {{accessToken}}
+
+### Bayar piutang
+POST {{baseUrl}}/receivables/UUID_PIUTANG/payments
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "amount": 1000000,
+  "method": "TRANSFER",
+  "reference": "BANK-123"
+}
+
+### Retur penjualan
+POST {{baseUrl}}/returns
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "saleId": "UUID_TRANSAKSI",
+  "warehouseId": "{{warehouseId}}",
+  "condition": "GOOD",
+  "reason": "Salah ukuran",
+  "items": [{ "saleItemId": "UUID_ITEM_TRANSAKSI", "quantity": 2 }]
+}
+
+### Buat transfer antar cabang
+POST {{baseUrl}}/stock-transfers
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "sourceBranchId": "{{branchId}}",
+  "sourceWarehouseId": "{{warehouseId}}",
+  "destinationBranchId": "UUID_CABANG_TUJUAN",
+  "destinationWarehouseId": "UUID_GUDANG_TUJUAN",
+  "items": [{ "productUnitId": "{{productUnitId}}", "quantity": 20 }],
+  "note": "Pemenuhan stok cabang"
+}
+
+### Setujui, kirim, lalu terima transfer
+PATCH {{baseUrl}}/stock-transfers/UUID_TRANSFER/approve
+Authorization: Bearer {{accessToken}}
+
+###
+PATCH {{baseUrl}}/stock-transfers/UUID_TRANSFER/dispatch
+Authorization: Bearer {{accessToken}}
+
+###
+PATCH {{baseUrl}}/stock-transfers/UUID_TRANSFER/receive
+Authorization: Bearer {{accessToken}}
+
+### Presensi masuk
+POST {{baseUrl}}/attendance/check-in
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "employeeId": "UUID_KARYAWAN"
+}
+
+### Laporan real-time
+GET {{baseUrl}}/reports/summary?branchId={{branchId}}&from=2026-09-01&to=2026-09-30
+Authorization: Bearer {{accessToken}}

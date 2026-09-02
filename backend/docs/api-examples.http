@@ -1,0 +1,119 @@
+@baseUrl = http://localhost:4000/api/v1
+@accessToken = GANTI_DENGAN_ACCESS_TOKEN
+
+### Health check
+GET {{baseUrl}}/health
+
+### Login (refresh token otomatis disimpan sebagai cookie HttpOnly)
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "owner@tbpermata.local",
+  "password": "PASSWORD_DARI_ENV"
+}
+
+### Profil login
+GET {{baseUrl}}/auth/me
+Authorization: Bearer {{accessToken}}
+
+### Refresh access token
+POST {{baseUrl}}/auth/refresh
+
+### Daftar cabang
+GET {{baseUrl}}/branches
+Authorization: Bearer {{accessToken}}
+
+### Tambah cabang
+POST {{baseUrl}}/branches
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "code": "CBG-02",
+  "name": "TB Permata Keramik Cabang 2",
+  "address": "Alamat cabang"
+}
+
+### Tambah user
+POST {{baseUrl}}/users
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "email": "manager.cabang2@tbpermata.local",
+  "password": "ganti-password-kuat",
+  "fullName": "Manager Cabang 2",
+  "roleCode": "MANAGER",
+  "branchId": "UUID_CABANG"
+}
+
+### Audit log
+GET {{baseUrl}}/audit-logs?page=1&limit=30
+Authorization: Bearer {{accessToken}}
+
+### Logout
+POST {{baseUrl}}/auth/logout
+Authorization: Bearer {{accessToken}}
+
+### Daftar kategori produk
+GET {{baseUrl}}/product-categories
+Authorization: Bearer {{accessToken}}
+
+### Daftar satuan
+GET {{baseUrl}}/units
+Authorization: Bearer {{accessToken}}
+
+### Tambah produk (gunakan UUID kategori dan satuan dari endpoint di atas)
+POST {{baseUrl}}/products
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "sku": "KER-KOB-ANDARA-BEIGE-3030",
+  "name": "Kobin Andara Beige 30x30",
+  "brand": "Kobin",
+  "productType": "KERAMIK",
+  "categoryId": "UUID_KATEGORI_KERAMIK",
+  "baseUnitId": "UUID_SATUAN_DUS",
+  "taxPercentage": 11,
+  "barcode": "899000000001"
+}
+
+### Cari produk; hasil dipaginasi agar tetap ringan untuk puluhan ribu produk
+GET {{baseUrl}}/products?search=andara&page=1&limit=30&branchId=UUID_CABANG
+Authorization: Bearer {{accessToken}}
+
+### Tambah satuan jual alternatif, contoh 1 dus berisi 4 pcs bila satuan dasar PCS
+POST {{baseUrl}}/products/UUID_PRODUK/units
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "unitId": "UUID_SATUAN_DUS",
+  "conversionToBase": 4,
+  "isDefaultSale": true,
+  "barcode": "899000000002"
+}
+
+### Tetapkan harga ecer/grosir per cabang secara atomik
+PUT {{baseUrl}}/products/UUID_PRODUK/prices/UUID_CABANG
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "tiers": [
+    { "productUnitId": "UUID_UNIT_JUAL", "minQuantity": 1, "sellPrice": 45000 },
+    { "productUnitId": "UUID_UNIT_JUAL", "minQuantity": 100, "sellPrice": 43000 },
+    { "productUnitId": "UUID_UNIT_JUAL", "minQuantity": 500, "sellPrice": 41000 }
+  ]
+}
+
+### Harga modal per cabang (tidak dapat dibaca kasir)
+PUT {{baseUrl}}/products/UUID_PRODUK/costs/UUID_CABANG
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "unitCost": 36000
+}

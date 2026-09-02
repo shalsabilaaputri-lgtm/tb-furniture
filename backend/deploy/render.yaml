@@ -1,0 +1,38 @@
+databases:
+  - name: tb-permata-postgres
+    databaseName: tb_permata
+    user: tb_permata_app
+    plan: basic-256mb
+
+services:
+  - type: web
+    name: tb-permata-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/v1/health
+    autoDeploy: false
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: API_PREFIX
+        value: api/v1
+      - key: DATABASE_URL
+        fromDatabase:
+          name: tb-permata-postgres
+          property: connectionString
+      - key: FRONTEND_ORIGIN
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_ACCESS_EXPIRES_IN
+        value: 15m
+      - key: REFRESH_TOKEN_DAYS
+        value: 30
+      - key: SITE_PROXY_SECRET
+        generateValue: true
+      - key: SEED_OWNER_EMAIL
+        sync: false
+      - key: SEED_OWNER_PASSWORD
+        sync: false
