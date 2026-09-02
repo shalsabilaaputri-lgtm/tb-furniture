@@ -1,8 +1,9 @@
-import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { getSessionUser } from "@/lib/session";
 import { can, resolveAccessUser, type AccessUser } from "@/lib/access";
 
 export async function requireApiUser(permission?: string): Promise<AccessUser> {
-  const identity = await getChatGPTUser();
+  const session = await getSessionUser();
+  const identity = session ? { email: session.email, displayName: session.displayName } : null;
   if (!identity) throw new Response(JSON.stringify({ error: "Silakan masuk terlebih dahulu." }), {
     status: 401,
     headers: { "content-type": "application/json" },
