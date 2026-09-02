@@ -9,7 +9,7 @@ export function getDb() {
     );
   }
 
-  return drizzle(env.DB, { schema });
+  return drizzle(env.DB as never, { schema });
 }
 
 export function getD1() {
