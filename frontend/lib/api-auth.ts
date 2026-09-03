@@ -31,6 +31,10 @@ export function assertBranchAccess(user: AccessUser, branchId: string) {
 export function apiError(error: unknown) {
   if (error instanceof Response) return error;
   const message = error instanceof Error ? error.message : "Terjadi kesalahan.";
+  console.error("[api] request failed", {
+    message,
+    stack: error instanceof Error ? error.stack : undefined,
+  });
   const friendly = message.includes("stocks_qty_valid")
     ? "Stok tersedia tidak mencukupi untuk transaksi ini."
     : message;
