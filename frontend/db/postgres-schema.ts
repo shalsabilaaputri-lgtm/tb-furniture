@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS attendance (id text PRIMARY KEY,employee_id text NOT 
 CREATE TABLE IF NOT EXISTS roles (id text PRIMARY KEY,code text UNIQUE NOT NULL,name text NOT NULL,description text NOT NULL DEFAULT '',is_active integer NOT NULL DEFAULT 1);
 CREATE TABLE IF NOT EXISTS permissions (id text PRIMARY KEY,code text UNIQUE NOT NULL,module text NOT NULL,name text NOT NULL);
 CREATE TABLE IF NOT EXISTS role_permissions (id text PRIMARY KEY,role_id text NOT NULL REFERENCES roles(id),permission_id text NOT NULL REFERENCES permissions(id),UNIQUE(role_id,permission_id));
-CREATE TABLE IF NOT EXISTS app_users (id text PRIMARY KEY,email text UNIQUE NOT NULL,name text NOT NULL,role_id text NOT NULL REFERENCES roles(id),branch_id text REFERENCES branches(id),is_active integer NOT NULL DEFAULT 1,created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS app_users (id text PRIMARY KEY,email text UNIQUE NOT NULL,name text NOT NULL,role_id text NOT NULL REFERENCES roles(id),branch_id text REFERENCES branches(id),password_hash text,is_active integer NOT NULL DEFAULT 1,created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS audit_logs (id text PRIMARY KEY,user_email text NOT NULL,branch_id text,module text NOT NULL,action text NOT NULL,reference_number text NOT NULL DEFAULT '',details text NOT NULL DEFAULT '',created_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS stock_transfers (id text PRIMARY KEY,transfer_number text UNIQUE NOT NULL,source_branch_id text NOT NULL REFERENCES branches(id),source_warehouse_id text NOT NULL REFERENCES warehouses(id),destination_branch_id text NOT NULL REFERENCES branches(id),destination_warehouse_id text NOT NULL REFERENCES warehouses(id),status text NOT NULL DEFAULT 'REQUESTED',note text NOT NULL DEFAULT '',requested_by text NOT NULL,approved_by text,shipped_by text,received_by text,approved_at timestamptz,shipped_at timestamptz,received_at timestamptz,created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now(),CHECK(source_branch_id<>destination_branch_id));
 CREATE TABLE IF NOT EXISTS stock_transfer_items (id text PRIMARY KEY,transfer_id text NOT NULL REFERENCES stock_transfers(id),product_id text NOT NULL REFERENCES products(id),quantity double precision NOT NULL CHECK(quantity>0),UNIQUE(transfer_id,product_id));
@@ -25,4 +25,10 @@ CREATE INDEX IF NOT EXISTS idx_products_search ON products(brand,category,name);
 CREATE INDEX IF NOT EXISTS idx_stocks_branch_product ON stocks(branch_id,product_id);
 CREATE INDEX IF NOT EXISTS idx_sales_branch_date ON sales(branch_id,created_at);
 CREATE INDEX IF NOT EXISTS idx_movements_branch_date ON stock_movements(branch_id,created_at);
+`;
+
+// Incremental changes to a schema that may already exist in production.
+// Always safe to re-run (IF NOT EXISTS / IF EXISTS everywhere).
+export const POSTGRES_MIGRATIONS = `
+ALTER TABLE app_users ADD COLUMN IF NOT EXISTS password_hash text;
 `;

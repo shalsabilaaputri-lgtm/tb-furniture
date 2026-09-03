@@ -1,7 +1,8 @@
 import { getD1 } from "@/db";
 import { apiError, requireApiUser } from "@/lib/api-auth";
+import { hashPassword } from "@/lib/password";
 
-type UserInput = { id?: string; email?: string; name?: string; roleId?: string; branchId?: string | null; isActive?: boolean };
+type UserInput = { id?: string; email?: string; name?: string; roleId?: string; branchId?: string | null; isActive?: boolean; password?: string };
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 async function validateInput(body: UserInput) {
@@ -45,10 +46,13 @@ export async function POST(request: Request) {
     const body = await request.json() as UserInput;
     const valid = await validateInput(body);
     if ("error" in valid) return Response.json({ error: valid.error }, { status: 400 });
+    const password = body.password || "";
+    if (password.length < 6) return Response.json({ error: "Password minimal 6 karakter." }, { status: 400 });
+    const passwordHash = await hashPassword(password);
     const d1 = getD1(); const id = crypto.randomUUID();
     await d1.batch([
-      d1.prepare("INSERT INTO app_users (id,email,name,role_id,branch_id,is_active) VALUES (?,?,?,?,?,1)")
-        .bind(id, valid.email, valid.name, valid.role.id, valid.branchId),
+      d1.prepare("INSERT INTO app_users (id,email,name,role_id,branch_id,password_hash,is_active) VALUES (?,?,?,?,?,?,1)")
+        .bind(id, valid.email, valid.name, valid.role.id, valid.branchId, passwordHash),
       d1.prepare("INSERT INTO audit_logs (id,user_email,module,action,reference_number,details) VALUES (?,?,'Access','Tambah pengguna',?,?)")
         .bind(crypto.randomUUID(), actor.email, id, `${valid.email} • ${valid.role.code}`),
     ]);
@@ -68,9 +72,15 @@ export async function PATCH(request: Request) {
     const d1 = getD1();
     const current = await d1.prepare("SELECT id FROM app_users WHERE id=?").bind(body.id).first();
     if (!current) return Response.json({ error: "Pengguna tidak ditemukan." }, { status: 404 });
+    const newPassword = (body.password || "").trim();
+    if (newPassword && newPassword.length < 6) return Response.json({ error: "Password minimal 6 karakter." }, { status: 400 });
+    const passwordHash = newPassword ? await hashPassword(newPassword) : null;
     await d1.batch([
-      d1.prepare("UPDATE app_users SET email=?,name=?,role_id=?,branch_id=?,is_active=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
-        .bind(valid.email, valid.name, valid.role.id, valid.branchId, body.isActive === false ? 0 : 1, body.id),
+      passwordHash
+        ? d1.prepare("UPDATE app_users SET email=?,name=?,role_id=?,branch_id=?,is_active=?,password_hash=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
+            .bind(valid.email, valid.name, valid.role.id, valid.branchId, body.isActive === false ? 0 : 1, passwordHash, body.id)
+        : d1.prepare("UPDATE app_users SET email=?,name=?,role_id=?,branch_id=?,is_active=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
+            .bind(valid.email, valid.name, valid.role.id, valid.branchId, body.isActive === false ? 0 : 1, body.id),
       d1.prepare("INSERT INTO audit_logs (id,user_email,module,action,reference_number,details) VALUES (?,?,'Access','Edit pengguna',?,?)")
         .bind(crypto.randomUUID(), actor.email, body.id, `${valid.email} • ${valid.role.code} • ${body.isActive === false ? "nonaktif" : "aktif"}`),
     ]);

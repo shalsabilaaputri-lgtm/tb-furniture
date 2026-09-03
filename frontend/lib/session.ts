@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 export type SessionUser = {
   email: string;
   displayName: string;
-  roleCode: "OWNER" | "ADMIN" | "CASHIER" | "WAREHOUSE" | "ACCOUNTING";
+  roleCode: "OWNER" | "ADMIN" | "MANAGER" | "CASHIER" | "WAREHOUSE" | "ACCOUNTING";
 };
 
 const COOKIE_NAME = "tb_permata_session";

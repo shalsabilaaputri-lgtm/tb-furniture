@@ -1,5 +1,5 @@
 import { neon } from "@neondatabase/serverless";
-import { POSTGRES_SCHEMA } from "./postgres-schema";
+import { POSTGRES_MIGRATIONS, POSTGRES_SCHEMA } from "./postgres-schema";
 
 type Result<T> = { results: T[]; success: boolean; meta: { changes: number } };
 type BoundQuery = { text: string; values: unknown[] };
@@ -27,8 +27,10 @@ async function ensureSchema() {
   if (!schemaReady) schemaReady = (async () => {
     const sql = sqlClient();
     const probe = await sql.query("SELECT to_regclass('public.branches') AS exists", []);
-    if (probe.rows?.[0]?.exists) return;
-    for (const statement of POSTGRES_SCHEMA.split(";").map((x) => x.trim()).filter(Boolean)) await sql.query(statement, []);
+    if (!probe.rows?.[0]?.exists) {
+      for (const statement of POSTGRES_SCHEMA.split(";").map((x) => x.trim()).filter(Boolean)) await sql.query(statement, []);
+    }
+    for (const statement of POSTGRES_MIGRATIONS.split(";").map((x) => x.trim()).filter(Boolean)) await sql.query(statement, []);
   })().catch((error) => { schemaReady = null; throw error; });
   await schemaReady;
 }
