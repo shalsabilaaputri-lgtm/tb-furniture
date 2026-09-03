@@ -95,3 +95,24 @@ export async function PATCH(request: Request) {
     return Response.json({ ok: true });
   } catch (error) { return apiError(error); }
 }
+
+export async function DELETE(request: Request) {
+  try {
+    const user = await requireApiUser("product.update");
+    const id = new URL(request.url).searchParams.get("id") || "";
+    if (!id) return Response.json({ error: "Produk tidak ditemukan." }, { status: 404 });
+    const d1 = getD1();
+    const current = await d1.prepare("SELECT name FROM products WHERE id=? AND is_active=1").bind(id).first<any>();
+    if (!current) return Response.json({ error: "Produk tidak ditemukan." }, { status: 404 });
+    // Soft delete: products are referenced by sale_items/stocks/stock_movements
+    // history, so a hard DELETE would fail on the foreign keys. Deactivating
+    // hides it from the app (bootstrap already filters is_active=1) while
+    // keeping past transactions intact.
+    await d1.batch([
+      d1.prepare("UPDATE products SET is_active=0 WHERE id=?").bind(id),
+      d1.prepare("INSERT INTO audit_logs (id,user_email,module,action,reference_number,details) VALUES (?,?,'Product','Hapus produk',?,?)")
+        .bind(crypto.randomUUID(), user.email, id, current.name),
+    ]);
+    return Response.json({ ok: true });
+  } catch (error) { return apiError(error); }
+}
