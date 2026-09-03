@@ -1,12 +1,14 @@
 import { getD1 } from "@/db";
 import { apiError, requireApiUser } from "@/lib/api-auth";
 import { can } from "@/lib/access";
+import { ensureSeedData } from "@/lib/seed";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
     const accessUser = await requireApiUser("dashboard.read");
+    await ensureSeedData();
     const d1 = getD1();
     const [branchResult, stockResult, movementResult, customerResult, salesResult, performanceResult, transactionResult, transactionItemResult, returnResult, financeResult, receivablePaymentResult, expenseResult, employeeResult, attendanceHistoryResult] = await d1.batch([
       d1.prepare("SELECT id,name,short_name AS shortName,address FROM branches WHERE is_active=1 ORDER BY id"),
@@ -20,7 +22,7 @@ export async function GET() {
         LEFT JOIN stocks s ON s.product_id=p.id
         LEFT JOIN branches b ON b.id=s.branch_id
         WHERE p.is_active=1
-        GROUP BY p.id,s.branch_id
+        GROUP BY p.id,s.branch_id,b.id,b.short_name
         ORDER BY p.brand,p.name,b.id`),
       d1.prepare(`SELECT m.id,m.reference_number AS referenceNumber,m.movement_type AS movementType,
         m.quantity,m.stock_before AS stockBefore,m.stock_after AS stockAfter,m.reason,m.created_at AS createdAt,
