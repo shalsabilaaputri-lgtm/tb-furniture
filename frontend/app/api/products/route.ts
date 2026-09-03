@@ -11,7 +11,7 @@ export async function POST(request: Request) {
     }
     const d1 = getD1();
     const id = crypto.randomUUID();
-    const branches = await d1.prepare("SELECT b.id,w.id AS warehouseId FROM branches b JOIN warehouses w ON w.branch_id=b.id WHERE b.is_active=1 GROUP BY b.id").all<any>();
+    const branches = await d1.prepare("SELECT DISTINCT ON (b.id) b.id,w.id AS warehouseId FROM branches b JOIN warehouses w ON w.branch_id=b.id WHERE b.is_active=1 ORDER BY b.id,w.id").all<any>();
     const statements = [
       d1.prepare(`INSERT INTO products
         (id,sku,barcode,name,brand,category,series,color,size,unit,pieces_per_box,sqm_per_box,purchase_price,landed_cost,selling_price,wholesale_price,project_price,minimum_price,minimum_stock,is_active)
