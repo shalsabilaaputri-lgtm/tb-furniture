@@ -26,6 +26,8 @@ function sqlClient() {
 async function ensureSchema() {
   if (!schemaReady) schemaReady = (async () => {
     const sql = sqlClient();
+    const probe = await sql.query("SELECT to_regclass('public.branches') AS exists", []);
+    if (probe.rows?.[0]?.exists) return;
     for (const statement of POSTGRES_SCHEMA.split(";").map((x) => x.trim()).filter(Boolean)) await sql.query(statement, []);
   })().catch((error) => { schemaReady = null; throw error; });
   await schemaReady;
