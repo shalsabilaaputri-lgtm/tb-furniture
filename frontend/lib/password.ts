@@ -7,7 +7,7 @@ function toHex(bytes: ArrayBuffer | Uint8Array) {
 
 async function derive(password: string, salt: Uint8Array, iterations: number) {
   const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt, iterations, hash: "SHA-256" }, key, 256);
+  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: salt as BufferSource, iterations, hash: "SHA-256" }, key, 256);
   return toHex(bits);
 }
 
