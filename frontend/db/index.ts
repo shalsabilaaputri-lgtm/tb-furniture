@@ -33,6 +33,7 @@ function translate(input: string) {
     .replace(/LOWER\(HEX\(RANDOMBLOB\(16\)\)\)/gi, "gen_random_uuid()::text")
     .replace(/,\s*[a-zA-Z_][\w]*\.rowid\s+DESC/gi, "")
     .replace(/([a-zA-Z_][\w]*)\.rowid/gi, "$1.id")
+    .replace(/\browid\b/gi, "id")
     .replace(/\bAS\s+([a-z][A-Za-z0-9]*[A-Z][A-Za-z0-9]*)/g, 'AS "$1"')
     .replace(/\.([a-z][A-Za-z0-9]*[A-Z][A-Za-z0-9]*)/g, '."$1"');
   let index = 0;
