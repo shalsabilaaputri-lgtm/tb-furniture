@@ -6,6 +6,16 @@ type BoundQuery = { text: string; values: unknown[] };
 let client: any;
 let schemaReady: Promise<void> | null = null;
 
+function normalizeValue(value: unknown): unknown {
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "bigint") return Number(value);
+  if (Array.isArray(value)) return value.map(normalizeValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, normalizeValue(item)]));
+  }
+  return value;
+}
+
 function sqlClient() {
   const url = process.env.DATABASE_URL || process.env.POSTGRES_URL;
   if (!url) throw new Error("DATABASE_URL belum tersedia di Vercel Production.");
@@ -51,7 +61,8 @@ class Statement {
     await ensureSchema();
     const q = this.query();
     const result = await sqlClient().query(q.text, q.values);
-    return { results: (result.rows || []) as T[], success: true, meta: { changes: Number(result.rowCount || 0) } };
+    const rows = (result.rows || []).map((row: unknown) => normalizeValue(row));
+    return { results: rows as T[], success: true, meta: { changes: Number(result.rowCount || 0) } };
   }
   async all<T = Record<string, unknown>>() { return this.execute<T>(); }
   async first<T = Record<string, unknown>>() { return (await this.execute<T>()).results[0] ?? null; }
