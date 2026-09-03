@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, BarChart3, Bell, Boxes,
   Building2, CheckCircle2, ChevronRight, ClipboardList, CreditCard, Gauge,
@@ -126,10 +126,18 @@ export function ErpClient({ user }: { user: { name: string; email: string } }) {
   const [expenseModal, setExpenseModal] = useState(false);
   const [priceProduct, setPriceProduct] = useState<Product | null>(null);
   const [receipt, setReceipt] = useState<Transaction | null>(null);
+  const hasData = useRef(false);
   const load = useCallback(async () => {
-    try { setError(""); setData(await json("/api/bootstrap")); }
-    catch (e) { setError(e instanceof Error ? e.message : "Data tidak dapat dimuat."); }
-    finally { setLoading(false); }
+    try {
+      const result = await json("/api/bootstrap");
+      setData(result); setError(""); hasData.current = true;
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Data tidak dapat dimuat.";
+      // A background refresh failing shouldn't blank out a dashboard that's
+      // already showing good data — just notify and keep the old data.
+      if (hasData.current) toast.error(`Gagal memperbarui data: ${message}`);
+      else setError(message);
+    } finally { setLoading(false); }
   }, []);
   useEffect(() => {
     load();
