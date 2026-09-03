@@ -19,7 +19,7 @@ export async function GET(request: Request) {
       FROM stock_transfers t
       JOIN branches sb ON sb.id=t.source_branch_id JOIN branches db ON db.id=t.destination_branch_id
       JOIN stock_transfer_items ti ON ti.transfer_id=t.id JOIN products p ON p.id=ti.product_id
-      WHERE (? IS NULL OR t.source_branch_id=? OR t.destination_branch_id=?)
+      WHERE (?::text IS NULL OR t.source_branch_id=? OR t.destination_branch_id=?)
         AND (?=1 OR t.source_branch_id=? OR t.destination_branch_id=?)
       ORDER BY t.created_at DESC,t.rowid DESC LIMIT 200`)
       .bind(branchId, branchId, branchId, user.roleCode === "OWNER" || user.permissions.includes("branch.read_all") ? 1 : 0, user.branchId, user.branchId)
