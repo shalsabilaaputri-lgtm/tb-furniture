@@ -34,28 +34,27 @@ export async function POST(request: Request) {
 
     const d1 = getDb();
     const resolved = [] as Array<CartItem & {
-      name: string; unit: string; costPrice: number; minimumPrice: number;
+      name: string; unit: string; costPrice: number; minimumPrice: number; sellingPrice: number;
       stockId: string; warehouseId: string; before: number; after: number;
     }>;
     for (const item of items) {
-      const row = await d1.prepare(`SELECT p.name,p.unit,p.landed_cost AS costPrice,p.minimum_price AS minimumPrice,
+      const row = await d1.prepare(`SELECT p.name,p.unit,p.landed_cost AS costPrice,p.minimum_price AS minimumPrice,p.selling_price AS sellingPrice,
         s.id AS stockId,s.warehouse_id AS warehouseId,s.physical_qty AS physicalQty,
         s.reserved_qty AS reservedQty,s.damaged_qty AS damagedQty
         FROM products p JOIN stocks s ON s.product_id=p.id
         WHERE p.id=? AND s.branch_id=? ORDER BY s.rowid LIMIT 1`).bind(item.productId, branchId).first<any>();
       if (!row) return Response.json({ error: "Produk atau lokasi stok tidak ditemukan." }, { status: 404 });
       const quantity = Number(item.quantity);
-      const unitPrice = Math.round(Number(item.unitPrice));
+      // The selling price is master data controlled by the owner. Never trust
+      // a price supplied by a browser, which can otherwise be modified by a cashier.
+      const unitPrice = Math.round(Number(row.sellingPrice));
       const available = Number(row.physicalQty) - Number(row.reservedQty) - Number(row.damagedQty);
       if (quantity > available) {
         return Response.json({ error: `${row.name}: stok tersedia hanya ${available} ${row.unit}.` }, { status: 409 });
       }
-      if (unitPrice < Number(row.minimumPrice)) {
-        return Response.json({ error: `${row.name}: harga di bawah batas minimum memerlukan persetujuan manajer.` }, { status: 409 });
-      }
       resolved.push({
         ...item, quantity, unitPrice, name: row.name, unit: row.unit,
-        costPrice: Number(row.costPrice), minimumPrice: Number(row.minimumPrice),
+        costPrice: Number(row.costPrice), minimumPrice: Number(row.minimumPrice), sellingPrice: Number(row.sellingPrice),
         stockId: row.stockId, warehouseId: row.warehouseId,
         before: Number(row.physicalQty), after: Number(row.physicalQty) - quantity,
       });

@@ -10,7 +10,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ invo
   if (!token) return Response.json({ error: "Tautan invoice tidak valid." }, { status: 400 });
   const d1 = getDb();
   const sale = await d1.prepare(`SELECT s.id,s.invoice_number AS invoiceNumber,s.created_at AS issuedAt,
-    b.short_name AS branchName,COALESCE(c.name,NULLIF(s.customer_name,''),'Customer Umum') AS customerName,
+    b.short_name AS branchName,b.address AS branchAddress,COALESCE(c.name,NULLIF(s.customer_name,''),'Customer Umum') AS customerName,
     COALESCE(NULLIF(s.customer_phone,''),c.whatsapp,'') AS customerPhone,s.subtotal,s.discount,
     s.delivery_fee AS deliveryFee,s.total,s.paid_amount AS paidAmount,s.payment_method AS paymentMethod,
     s.credit_due_rule AS dueRule,s.credit_due_date AS dueDate

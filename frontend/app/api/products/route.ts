@@ -4,6 +4,7 @@ import { apiError, requireApiUser } from "@/lib/api-auth";
 export async function POST(request: Request) {
   try {
     const user = await requireApiUser("product.create");
+    if (user.roleCode !== "OWNER") return Response.json({ error: "Hanya owner yang dapat menetapkan harga atau menambah produk." }, { status: 403 });
     const body = await request.json() as Record<string, unknown>;
     const required = ["sku", "name", "brand", "category", "unit"];
     if (required.some((key) => !String(body[key] ?? "").trim())) {
@@ -50,6 +51,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const user = await requireApiUser("product.update");
+    if (user.roleCode !== "OWNER") return Response.json({ error: "Hanya owner yang dapat mengubah harga atau data produk." }, { status: 403 });
     const body = await request.json() as Record<string, unknown>;
     const id = String(body.id ?? "");
     if (!id) return Response.json({ error: "Produk tidak ditemukan." }, { status: 404 });
@@ -110,6 +112,7 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   try {
     const user = await requireApiUser("product.update");
+    if (user.roleCode !== "OWNER") return Response.json({ error: "Hanya owner yang dapat menghapus produk." }, { status: 403 });
     const id = new URL(request.url).searchParams.get("id") || "";
     if (!id) return Response.json({ error: "Produk tidak ditemukan." }, { status: 404 });
     const d1 = getDb();
