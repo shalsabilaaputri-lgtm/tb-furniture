@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FileScan, Loader2, ShieldCheck, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,12 @@ export function StockImportDialog({
   const [draft, setDraft] = useState<Draft | null>(null);
   const [parsing, setParsing] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setBranchId(defaultBranch === "all" ? branches[0]?.id || "" : defaultBranch);
+    setDraft(null);
+  }, [open, defaultBranch, branches]);
 
   const reset = () => { setDraft(null); setParsing(false); setSaving(false); };
   const closeDialog = () => { reset(); close(); };
@@ -82,7 +88,7 @@ export function StockImportDialog({
     <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-4xl">
       <DialogHeader>
         <DialogTitle className="flex items-center gap-2"><FileScan className="size-5 text-[#991b1b]" /> Impor nota atau Excel</DialogTitle>
-        <DialogDescription>Excel/CSV dibaca langsung; PDF dan foto dibaca dengan OCR. Stok hanya berubah setelah Anda menerapkan hasilnya.</DialogDescription>
+        <DialogDescription>Target impor mengikuti cabang yang sedang Anda pilih. Excel/CSV dibaca langsung; PDF dan foto dibaca dengan OCR. Stok hanya berubah setelah Anda menerapkan hasilnya.</DialogDescription>
       </DialogHeader>
       {!draft ? <form onSubmit={parse} className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">
