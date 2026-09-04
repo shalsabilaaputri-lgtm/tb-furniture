@@ -31,6 +31,7 @@ const PERMISSION_ROWS = [
   ["perm-delivery-approve", "delivery.approve", "Penjualan", "Setujui ongkir di atas 20 km"],
   ["perm-finance-read", "finance.read", "Keuangan", "Lihat keuangan"],
   ["perm-receivable-read", "receivable.read", "Keuangan", "Lihat piutang customer"],
+  ["perm-receivable-manage", "receivable.manage", "Keuangan", "Catat pelunasan piutang"],
   ["perm-finance-manage", "finance.manage", "Keuangan", "Kelola keuangan dan piutang"],
   ["perm-report-read", "report.read", "Laporan", "Lihat laporan"],
   ["perm-attendance", "attendance.manage", "Karyawan", "Kelola presensi"],
@@ -39,12 +40,12 @@ const PERMISSION_ROWS = [
 
 const ROLE_PERMISSIONS: Record<string, string[]> = {
   OWNER: PERMISSION_ROWS.map((row) => row[1]),
-  ADMIN: ["dashboard.read", "branch.read_all", "product.read", "product.create", "product.update", "cost_price.read", "stock.read", "stock.adjust", "transfer.read", "transfer.request", "transfer.approve", "transfer.dispatch", "transfer.receive", "sales.read", "sales.create", "sales.return", "delivery.approve", "finance.read", "finance.manage", "receivable.read", "report.read", "attendance.manage"],
-  MANAGER: ["dashboard.read", "product.read", "product.update", "cost_price.read", "stock.read", "stock.adjust", "transfer.read", "transfer.request", "transfer.approve", "transfer.dispatch", "transfer.receive", "sales.read", "sales.create", "sales.return", "delivery.approve", "finance.read", "receivable.read", "report.read", "attendance.manage"],
+  ADMIN: ["dashboard.read", "branch.read_all", "product.read", "product.create", "product.update", "cost_price.read", "stock.read", "stock.adjust", "transfer.read", "transfer.request", "transfer.approve", "transfer.dispatch", "transfer.receive", "sales.read", "sales.create", "sales.return", "delivery.approve", "finance.read", "finance.manage", "receivable.read", "receivable.manage", "report.read", "attendance.manage"],
+  MANAGER: ["dashboard.read", "product.read", "product.update", "cost_price.read", "stock.read", "stock.adjust", "transfer.read", "transfer.request", "transfer.approve", "transfer.dispatch", "transfer.receive", "sales.read", "sales.create", "sales.return", "delivery.approve", "finance.read", "receivable.read", "receivable.manage", "report.read", "attendance.manage"],
   CASHIER: ["dashboard.read", "product.read", "stock.read", "sales.read", "sales.create", "sales.return"],
   WAREHOUSE: ["dashboard.read", "product.read", "stock.read", "stock.adjust", "transfer.read", "transfer.request", "transfer.dispatch", "transfer.receive"],
-  ACCOUNTING: ["dashboard.read", "sales.read", "finance.read", "finance.manage", "receivable.read", "report.read"],
-  BRANCH_STAFF: ["dashboard.read", "product.read", "stock.read", "stock.read_all", "sales.read", "sales.create", "sales.return", "receivable.read"],
+  ACCOUNTING: ["dashboard.read", "sales.read", "finance.read", "finance.manage", "receivable.read", "receivable.manage", "report.read"],
+  BRANCH_STAFF: ["dashboard.read", "product.read", "stock.read", "stock.read_all", "sales.read", "sales.create", "sales.return", "receivable.read", "receivable.manage"],
 };
 
 export type AccessUser = {

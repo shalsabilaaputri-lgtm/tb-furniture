@@ -4,7 +4,7 @@ import { createReference } from "@/lib/reference";
 
 export async function POST(request: Request) {
   try {
-    const user = await requireApiUser("finance.manage");
+    const user = await requireApiUser("receivable.manage");
     const body = await request.json() as { saleId?: string; amount?: number; method?: string };
     const amount = Math.round(Number(body.amount));
     if (!body.saleId || !body.method || !Number.isFinite(amount) || amount <= 0) {

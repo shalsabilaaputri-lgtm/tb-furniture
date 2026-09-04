@@ -8,7 +8,7 @@ export async function GET() {
   try {
     const accessUser = await requireApiUser("dashboard.read");
     const d1 = getDb();
-    const [branchResult, stockResult, movementResult, customerResult, performanceResult, transactionResult, transactionItemResult, returnResult, financeResult, receivablePaymentResult, expenseResult, employeeResult, attendanceHistoryResult] = await d1.batch([
+    const [branchResult, stockResult, movementResult, customerResult, performanceResult, transactionResult, transactionItemResult, creditInvoiceResult, returnResult, financeResult, receivablePaymentResult, expenseResult, employeeResult, attendanceHistoryResult] = await d1.batch([
       d1.prepare("SELECT id,name,short_name AS shortName,address FROM branches WHERE is_active=1 ORDER BY id"),
       d1.prepare(`SELECT p.id,p.sku,p.barcode,p.name,p.brand,p.category,p.series,p.color,p.size,p.unit,
         p.pieces_per_box AS piecesPerBox,p.sqm_per_box AS sqmPerBox,p.landed_cost AS landedCost,
@@ -51,6 +51,12 @@ export async function GET() {
         FROM sale_items si JOIN products p ON p.id=si.product_id
         WHERE si.sale_id IN (SELECT id FROM sales ORDER BY created_at DESC,rowid DESC LIMIT 50)
         ORDER BY si.rowid`),
+      d1.prepare(`SELECT s.id,s.invoice_number AS invoiceNumber,s.branch_id AS branchId,b.short_name AS branchName,
+        s.customer_id AS customerId,COALESCE(c.name,NULLIF(s.customer_name,''),'Customer Umum') AS customerName,
+        COALESCE(NULLIF(s.customer_phone,''),c.whatsapp,'') AS customerPhone,s.total,s.paid_amount AS paidAmount,
+        s.credit_due_rule AS creditDueRule,s.credit_due_date AS creditDueDate,s.status,s.created_at AS createdAt
+        FROM sales s JOIN branches b ON b.id=s.branch_id LEFT JOIN customers c ON c.id=s.customer_id
+        WHERE s.payment_method='Piutang' ORDER BY s.created_at DESC`),
       d1.prepare(`SELECT cr.id,cr.return_number AS returnNumber,cr.sale_id AS saleId,s.invoice_number AS invoiceNumber,
         cr.branch_id AS branchId,b.short_name AS branchName,COALESCE(c.name,'Customer Umum') AS customerName,
         cr.total_refund AS totalRefund,cr.reason,cr.condition,cr.status,cr.created_at AS createdAt
@@ -135,6 +141,7 @@ export async function GET() {
       ...transaction,
       items: transaction.items.map((item: any) => ({ ...item, costPrice: canSeeCost ? item.costPrice : undefined })),
     }));
+    const scopedCreditInvoices = (creditInvoiceResult.results as any[]).filter(inScope);
     const scopedExpenses = (expenseResult.results as any[]).filter(inScope);
     const scopedPerformance = (performanceResult.results as any[]).filter(inScope);
     const dailyOmzet = scopedPerformance.reduce((sum, row) => sum + Number(row.omzet || 0), 0);
@@ -159,6 +166,7 @@ export async function GET() {
       customers: (customerResult.results as any[]).map((row) => ({ ...row, creditLimit: canSeeReceivables ? row.creditLimit : 0, outstanding: canSeeReceivables ? row.outstanding : 0 })),
       performance: canSeePerformance ? scopedPerformance : [],
       transactions: scopedTransactions,
+      creditInvoices: canSeeReceivables ? scopedCreditInvoices : [],
       returns: (returnResult.results as any[]).filter(inScope),
       receivablePayments: canSeeReceivables ? (receivablePaymentResult.results as any[]).filter(inScope) : [],
       expenses: canSeeFinance ? scopedExpenses : [],
