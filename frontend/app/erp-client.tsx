@@ -141,16 +141,16 @@ export function ErpClient({ user }: { user: { name: string; email: string } }) {
       else setError(message);
     } finally { setLoading(false); }
   }, []);
+  useEffect(() => { void load(); }, [load]);
   useEffect(() => {
-    load();
     // Full bootstrap includes products, stock, transactions, and reports.
-    // Refresh it only while the app is visible; mutations already refresh
-    // immediately after a successful save.
+    // Do not replace the app data while an import draft is being reviewed:
+    // its parsed rows exist only in the dialog state until the user applies it.
     const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") void load();
+      if (!stockImportModal && document.visibilityState === "visible") void load();
     }, 60000);
     return () => window.clearInterval(timer);
-  }, [load]);
+  }, [load, stockImportModal]);
   const products = useMemo(() => (data?.products ?? []).filter((p) => !query || [p.name,p.sku,p.barcode,p.brand,p.category].some((v) => v?.toLowerCase().includes(query.toLowerCase()))), [data, query]);
   const visibleNav = useMemo(() => nav.filter((item) => !data || data.currentUser.roleCode === "OWNER" || data.currentUser.permissions.includes(viewPermission[item.id])), [data]);
   const go = (next: View) => { setView(next); setQuery(""); };

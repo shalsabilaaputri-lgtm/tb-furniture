@@ -3,6 +3,9 @@ import { apiError, assertBranchAccess, requireApiUser } from "@/lib/api-auth";
 import { can } from "@/lib/access";
 import { createReference } from "@/lib/reference";
 
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
 type ImportItem = {
   productId?: string; createNew?: boolean; quantity?: number; sourceName?: string;
   sku?: string; barcode?: string; brand?: string; series?: string; size?: string; unit?: string;
@@ -12,6 +15,7 @@ export async function POST(request: Request) {
   try {
     const user = await requireApiUser("stock.adjust");
     const payload = await request.json() as { branchId?: string; direction?: "IN" | "OUT" | "ADJUST"; sourceName?: string; reference?: string; items?: ImportItem[] };
+    console.info("[stock-import.apply] received", { branchId: payload.branchId, direction: payload.direction, itemCount: payload.items?.length || 0 });
     const branchId = payload.branchId?.trim();
     if (!branchId || !["IN", "OUT", "ADJUST"].includes(payload.direction || "") || !Array.isArray(payload.items) || !payload.items.length || payload.items.length > 200) {
       return Response.json({ error: "Data impor belum lengkap atau terlalu banyak." }, { status: 400 });
@@ -50,6 +54,7 @@ export async function POST(request: Request) {
         }
       }
       await db.batch(statements);
+      console.info("[stock-import.apply] products-created", { branchId, productCount: newItems.length });
       for (const item of newItems) resolvedItems.push({ ...item, productId: created.get(item)! });
     }
     for (const item of payload.items) if (item.productId?.trim()) resolvedItems.push({ ...item, productId: item.productId.trim() });
@@ -114,6 +119,7 @@ export async function POST(request: Request) {
       SELECT v.ok,(SELECT COUNT(*) FROM updated) AS changed FROM verification v
     `).bind(...bindings, reference, branchId, movementType, payload.direction, payload.direction, note, user.email, user.email, branchId, action, reference).first<{ ok: number; changed: number }>();
     if (Number(result?.ok) !== 1 || Number(result?.changed) !== rows.length) return Response.json({ error: "Ada stok yang baru berubah. Muat ulang, lalu ulangi impor agar seluruh data konsisten." }, { status: 409 });
+    console.info("[stock-import.apply] completed", { branchId, reference, itemCount: rows.length });
     return Response.json({ ok: true, reference, itemCount: rows.length });
   } catch (error) {
     return apiError(error);

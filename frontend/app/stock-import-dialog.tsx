@@ -30,7 +30,10 @@ export function StockImportDialog({
     if (!open) return;
     setBranchId(defaultBranch === "all" ? branches[0]?.id || "" : defaultBranch);
     setDraft(null);
-  }, [open, defaultBranch, branches]);
+    // Do not depend on the branches array identity: the dashboard refreshes in
+    // the background and returns a new array every time. Resetting here would
+    // discard a reviewed import draft while the dialog is still open.
+  }, [open, defaultBranch]);
 
   const reset = () => { setDraft(null); setParsing(false); setSaving(false); };
   const closeDialog = () => { reset(); close(); };
