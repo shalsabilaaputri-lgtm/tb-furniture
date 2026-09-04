@@ -119,13 +119,16 @@ export async function GET() {
     for (const item of transactionItemResult.results as any[]) transactionMap.get(item.saleId)?.items.push(item);
     const financial = (financeResult.results[0] ?? {}) as any;
     const scopedBranchId = can(accessUser, "branch.read_all") ? null : accessUser.branchId;
+    const canSeeAllStock = can(accessUser, "branch.read_all") || can(accessUser, "stock.read_all");
     const inScope = (row: any) => !scopedBranchId || row.branchId === scopedBranchId;
     const canSeeCost = can(accessUser, "cost_price.read");
     const canSeeFinance = can(accessUser, "finance.read");
+    const canSeeReceivables = canSeeFinance || can(accessUser, "receivable.read");
+    const canSeePerformance = can(accessUser, "report.read");
     const scopedProducts = products.map((product) => ({
       ...product,
       landedCost: canSeeCost ? product.landedCost : 0,
-      stocks: scopedBranchId ? product.stocks.filter((stock: any) => stock.branchId === scopedBranchId) : product.stocks,
+      stocks: canSeeAllStock || !scopedBranchId ? product.stocks : product.stocks.filter((stock: any) => stock.branchId === scopedBranchId),
     }));
     const scopedTransactions = Array.from(transactionMap.values()).filter(inScope).map((transaction: any) => ({
       ...transaction,
@@ -149,14 +152,14 @@ export async function GET() {
     return Response.json({
       demoMode: false,
       currentUser: accessUser,
-      branches: (branchResult.results as any[]).filter((row) => !scopedBranchId || row.id === scopedBranchId),
+      branches: (branchResult.results as any[]).filter((row) => canSeeAllStock || !scopedBranchId || row.id === scopedBranchId),
       products: scopedProducts,
       movements: (movementResult.results as any[]).filter(inScope),
-      customers: (customerResult.results as any[]).map((row) => ({ ...row, creditLimit: canSeeFinance ? row.creditLimit : 0, outstanding: canSeeFinance && !scopedBranchId ? row.outstanding : 0 })),
-      performance: scopedPerformance,
+      customers: (customerResult.results as any[]).map((row) => ({ ...row, creditLimit: canSeeReceivables ? row.creditLimit : 0, outstanding: canSeeReceivables ? row.outstanding : 0 })),
+      performance: canSeePerformance ? scopedPerformance : [],
       transactions: scopedTransactions,
       returns: (returnResult.results as any[]).filter(inScope),
-      receivablePayments: canSeeFinance ? (receivablePaymentResult.results as any[]).filter(inScope) : [],
+      receivablePayments: canSeeReceivables ? (receivablePaymentResult.results as any[]).filter(inScope) : [],
       expenses: canSeeFinance ? scopedExpenses : [],
       employees: (employeeResult.results as any[]).filter(inScope),
       attendanceHistory: (attendanceHistoryResult.results as any[]).filter(inScope),
@@ -174,7 +177,7 @@ export async function GET() {
         grossProfit: canSeeCost ? dailyOmzet - dailyHpp : 0,
         transactions: dailyTransactions,
         averageTransaction: dailyTransactions ? dailyOmzet / dailyTransactions : 0,
-        receivables: canSeeFinance && !scopedBranchId ? totalOutstanding : 0,
+        receivables: canSeeReceivables ? totalOutstanding : 0,
         inventoryValue: canSeeCost ? scopedProducts.reduce((sum, product) => sum + product.stocks.reduce((subtotal: number, item: any) => subtotal + item.physical, 0) * Number(product.landedCost), 0) : 0,
         lowStock: scopedProducts.filter((product) => product.stocks.reduce((sum: number, item: any) => sum + item.available, 0) <= Number(product.minimumStock)).length,
         outOfStock: scopedProducts.filter((product) => product.stocks.reduce((sum: number, item: any) => sum + item.available, 0) === 0).length,

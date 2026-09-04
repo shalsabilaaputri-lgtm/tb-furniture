@@ -7,6 +7,7 @@ const ROLE_ROWS = [
   ["role-cashier", "CASHIER", "Kasir", "Transaksi penjualan dan customer"],
   ["role-warehouse", "WAREHOUSE", "Gudang", "Stok, barang masuk, dan penyesuaian"],
   ["role-accounting", "ACCOUNTING", "Keuangan", "Piutang, pengeluaran, dan laporan"],
+  ["role-branch-staff", "BRANCH_STAFF", "Karyawan Cabang", "POS cabang, stok seluruh cabang, dan piutang tanpa akses ke laba atau laporan keuangan"],
 ] as const;
 
 const PERMISSION_ROWS = [
@@ -17,6 +18,7 @@ const PERMISSION_ROWS = [
   ["perm-product-update", "product.update", "Produk", "Ubah produk dan harga"],
   ["perm-cost-read", "cost_price.read", "Produk", "Lihat HPP"],
   ["perm-stock-read", "stock.read", "Inventory", "Lihat stok"],
+  ["perm-stock-read-all", "stock.read_all", "Inventory", "Lihat stok seluruh cabang"],
   ["perm-stock-adjust", "stock.adjust", "Inventory", "Ubah stok"],
   ["perm-transfer-read", "transfer.read", "Inventory", "Lihat transfer cabang"],
   ["perm-transfer-request", "transfer.request", "Inventory", "Buat transfer cabang"],
@@ -28,6 +30,7 @@ const PERMISSION_ROWS = [
   ["perm-sales-return", "sales.return", "Penjualan", "Buat retur"],
   ["perm-delivery-approve", "delivery.approve", "Penjualan", "Setujui ongkir di atas 20 km"],
   ["perm-finance-read", "finance.read", "Keuangan", "Lihat keuangan"],
+  ["perm-receivable-read", "receivable.read", "Keuangan", "Lihat piutang customer"],
   ["perm-finance-manage", "finance.manage", "Keuangan", "Kelola keuangan dan piutang"],
   ["perm-report-read", "report.read", "Laporan", "Lihat laporan"],
   ["perm-attendance", "attendance.manage", "Karyawan", "Kelola presensi"],
@@ -36,11 +39,12 @@ const PERMISSION_ROWS = [
 
 const ROLE_PERMISSIONS: Record<string, string[]> = {
   OWNER: PERMISSION_ROWS.map((row) => row[1]),
-  ADMIN: ["dashboard.read", "branch.read_all", "product.read", "product.create", "product.update", "cost_price.read", "stock.read", "stock.adjust", "transfer.read", "transfer.request", "transfer.approve", "transfer.dispatch", "transfer.receive", "sales.read", "sales.create", "sales.return", "delivery.approve", "finance.read", "finance.manage", "report.read", "attendance.manage"],
-  MANAGER: ["dashboard.read", "product.read", "product.update", "cost_price.read", "stock.read", "stock.adjust", "transfer.read", "transfer.request", "transfer.approve", "transfer.dispatch", "transfer.receive", "sales.read", "sales.create", "sales.return", "delivery.approve", "finance.read", "report.read", "attendance.manage"],
+  ADMIN: ["dashboard.read", "branch.read_all", "product.read", "product.create", "product.update", "cost_price.read", "stock.read", "stock.adjust", "transfer.read", "transfer.request", "transfer.approve", "transfer.dispatch", "transfer.receive", "sales.read", "sales.create", "sales.return", "delivery.approve", "finance.read", "finance.manage", "receivable.read", "report.read", "attendance.manage"],
+  MANAGER: ["dashboard.read", "product.read", "product.update", "cost_price.read", "stock.read", "stock.adjust", "transfer.read", "transfer.request", "transfer.approve", "transfer.dispatch", "transfer.receive", "sales.read", "sales.create", "sales.return", "delivery.approve", "finance.read", "receivable.read", "report.read", "attendance.manage"],
   CASHIER: ["dashboard.read", "product.read", "stock.read", "sales.read", "sales.create", "sales.return"],
   WAREHOUSE: ["dashboard.read", "product.read", "stock.read", "stock.adjust", "transfer.read", "transfer.request", "transfer.dispatch", "transfer.receive"],
-  ACCOUNTING: ["dashboard.read", "sales.read", "finance.read", "finance.manage", "report.read"],
+  ACCOUNTING: ["dashboard.read", "sales.read", "finance.read", "finance.manage", "receivable.read", "report.read"],
+  BRANCH_STAFF: ["dashboard.read", "product.read", "stock.read", "stock.read_all", "sales.read", "sales.create", "sales.return", "receivable.read"],
 };
 
 export type AccessUser = {

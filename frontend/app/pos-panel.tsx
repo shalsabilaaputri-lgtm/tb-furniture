@@ -55,12 +55,13 @@ function whatsappUrl(transaction: ReceiptTransaction) {
   return `https://wa.me/${normalizePhone(transaction.customerPhone || "")}?text=${encodeURIComponent(message)}`;
 }
 
-export function PosPanel({ data, initialBranch, reload, printReceipt, canApproveDelivery }: {
+export function PosPanel({ data, initialBranch, reload, printReceipt, canApproveDelivery, salesBranchId }: {
   data: PosData; initialBranch: string; reload: () => Promise<void>;
   printReceipt: (transaction: ReceiptTransaction) => void;
-  canApproveDelivery: boolean;
+  canApproveDelivery: boolean; salesBranchId?: string | null;
 }) {
-  const [branchId, setBranchId] = useState(initialBranch);
+  const salesBranches = salesBranchId ? data.branches.filter((branch) => branch.id === salesBranchId) : data.branches;
+  const [branchId, setBranchId] = useState(salesBranchId || initialBranch);
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [customerId, setCustomerId] = useState("walk-in");
@@ -150,7 +151,7 @@ export function PosPanel({ data, initialBranch, reload, printReceipt, canApprove
           <div><CardTitle>Pilih Barang</CardTitle><p className="text-sm text-slate-500">Jumlah besar dapat langsung diketik di keranjang</p></div>
           <Select value={branchId} onValueChange={(value) => { setBranchId(value); setCart([]); }}>
             <SelectTrigger className="h-11 w-[180px]"><Warehouse className="size-4"/><SelectValue/></SelectTrigger>
-            <SelectContent>{data.branches.map((branch) => <SelectItem key={branch.id} value={branch.id}>{branch.shortName}</SelectItem>)}</SelectContent>
+            <SelectContent>{salesBranches.map((branch) => <SelectItem key={branch.id} value={branch.id}>{branch.shortName}</SelectItem>)}</SelectContent>
           </Select>
         </div>
         <div className="relative"><Search className="absolute left-4 top-1/2 size-5 -translate-y-1/2 text-slate-400"/><Input value={search} onChange={(event) => setSearch(event.target.value)} className="h-12 bg-white pl-12 text-base" placeholder="Cari nama, SKU, atau scan barcode…"/></div>
@@ -198,10 +199,11 @@ export function PosPanel({ data, initialBranch, reload, printReceipt, canApprove
         </div>
         <div className="space-y-1 border-t pt-3 text-sm"><div className="flex justify-between"><span>Subtotal</span><b>{rupiah.format(subtotal)}</b></div><div className="flex justify-between text-emerald-700"><span>Diskon</span><b>−{rupiah.format(safeDiscount)}</b></div><div className="flex justify-between"><span>Ongkir</span><b>{rupiah.format(deliveryFee)}</b></div></div>
         <div className="flex items-end justify-between"><b>TOTAL</b><b className="text-2xl text-[#991b1b]">{rupiah.format(total)}</b></div>
+        <p className="text-center text-xs text-slate-500">WhatsApp menyimpan transaksi lalu membuka chat pelanggan dengan nota yang sudah terisi.</p>
         <div className="grid grid-cols-3 gap-2">
           <Button onClick={() => submit("save")} disabled={saving || !cart.length} variant="outline" className="h-12 px-2 font-bold">{saving ? <Loader2 className="animate-spin"/> : <CheckCircle2/>}<span className="hidden sm:inline">Simpan</span></Button>
           <Button onClick={() => submit("print")} disabled={saving || !cart.length} variant="outline" className="h-12 px-2 font-bold"><Printer/> Cetak</Button>
-          <Button onClick={() => submit("whatsapp")} disabled={saving || !cart.length} className="h-12 bg-emerald-600 px-2 font-bold hover:bg-emerald-700"><MessageCircle/> WhatsApp</Button>
+          <Button onClick={() => submit("whatsapp")} disabled={saving || !cart.length} className="h-12 bg-emerald-600 px-2 font-bold hover:bg-emerald-700"><MessageCircle/> Kirim WA</Button>
         </div>
       </div>
     </Card>
