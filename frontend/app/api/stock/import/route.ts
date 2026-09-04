@@ -15,6 +15,8 @@ const EXCEL_TYPES = new Set([
 ]);
 const DOCUMENT_TYPES = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp"]);
 
+type ImportDirection = "IN" | "OUT" | "ADJUST";
+
 const extractedDocument = z.object({
   direction: z.enum(["IN", "OUT"]).optional(),
   reference: z.string().max(120).optional(),
@@ -27,7 +29,9 @@ const extractedDocument = z.object({
   })).max(200),
 });
 
-type ParsedLine = z.infer<typeof extractedDocument>["lines"][number];
+type ParsedLine = z.infer<typeof extractedDocument>["lines"][number] & {
+  brand?: string; series?: string; size?: string; quality?: string;
+};
 
 function value(row: Record<string, unknown>, names: string[]) {
   const normalized = new Map(Object.entries(row).map(([key, item]) => [key.toLowerCase().replace(/[^a-z0-9]/g, ""), item]));
@@ -39,23 +43,49 @@ function value(row: Record<string, unknown>, names: string[]) {
 }
 
 function parseQuantity(input: string) {
-  const normalized = input.replace(/\./g, "").replace(",", ".").replace(/[^0-9.-]/g, "");
+  const cleaned = input.replace(/[^0-9,.-]/g, "");
+  const comma = cleaned.lastIndexOf(",");
+  const dot = cleaned.lastIndexOf(".");
+  let normalized = cleaned;
+  if (comma >= 0 && dot >= 0) normalized = comma > dot ? cleaned.replace(/\./g, "").replace(",", ".") : cleaned.replace(/,/g, "");
+  else if (comma >= 0) {
+    const fraction = cleaned.slice(comma + 1);
+    normalized = fraction.length === 3 ? cleaned.replace(/,/g, "") : cleaned.replace(",", ".");
+  } else if (dot >= 0) {
+    const fraction = cleaned.slice(dot + 1);
+    normalized = fraction.length === 3 ? cleaned.replace(/\./g, "") : cleaned;
+  }
   const result = Number(normalized);
   return Number.isFinite(result) && result > 0 ? result : 0;
 }
 
-function parseSpreadsheet(bytes: Uint8Array): ParsedLine[] {
+function parseSpreadsheet(bytes: Uint8Array): { lines: ParsedLine[]; direction?: ImportDirection } {
   const workbook = XLSX.read(bytes, { type: "array", cellDates: true });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  if (!sheet) return [];
+  if (!sheet) return { lines: [] };
   const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "", raw: false });
-  return rows.map((row) => ({
-    sku: value(row, ["sku", "kodeproduk", "kodebarang", "productcode"]),
-    barcode: value(row, ["barcode", "ean", "kodebarcode"]),
-    name: value(row, ["namaproduk", "namabarang", "produk", "barang", "product", "item"]),
-    quantity: parseQuantity(value(row, ["jumlah", "qty", "quantity", "kuantitas", "banyak"])),
-    unit: value(row, ["satuan", "unit"]),
-  })).filter((line) => line.name || line.sku || line.barcode || line.quantity);
+  const headers = Object.keys(rows[0] || {}).map((header) => header.toLowerCase().replace(/[^a-z0-9]/g, ""));
+  const stockCount = headers.includes("stok") || headers.includes("stokfisik") || headers.includes("stokakhir");
+  const lines = rows.map((row) => {
+    const brand = value(row, ["merek", "brand"]);
+    const series = value(row, ["serimotif", "seri", "motif", "series"]);
+    const size = value(row, ["ukurancm", "ukuran", "size"]);
+    const quality = value(row, ["kualitas", "quality", "grade"]);
+    const explicitName = value(row, ["namaproduk", "namabarang", "produk", "barang", "product", "item"]);
+    const name = explicitName || [brand, series, size, quality].filter(Boolean).join(" ");
+    return {
+      sku: value(row, ["sku", "kodeproduk", "kodebarang", "productcode"]),
+      barcode: value(row, ["barcode", "ean", "kodebarcode"]),
+      name,
+      brand, series, size, quality,
+      quantity: parseQuantity(value(row, stockCount ? ["stokfisik", "stokakhir", "stok"] : ["jumlah", "qty", "quantity", "kuantitas", "banyak"])),
+      unit: value(row, ["satuan", "unit"]),
+    };
+  }).filter((line) => {
+    const summary = /^(total|grandtotal|jumlah)/i.test(normalize(line.name || "")) || /^(total|grandtotal|jumlah)/i.test(normalize(line.quality || ""));
+    return !summary && (line.name || line.sku || line.barcode || line.quantity);
+  });
+  return { lines, direction: stockCount ? "ADJUST" : undefined };
 }
 
 async function parseDocument(bytes: Uint8Array, mediaType: string) {
@@ -82,7 +112,7 @@ export async function POST(request: Request) {
     const file = form.get("file");
     const branchId = String(form.get("branchId") || "").trim();
     const requestedDirection = String(form.get("direction") || "").toUpperCase();
-    if (!branchId || !["IN", "OUT"].includes(requestedDirection)) return Response.json({ error: "Pilih cabang dan jenis mutasi terlebih dahulu." }, { status: 400 });
+    if (!branchId || !["IN", "OUT", "ADJUST"].includes(requestedDirection)) return Response.json({ error: "Pilih cabang dan jenis mutasi terlebih dahulu." }, { status: 400 });
     assertBranchAccess(user, branchId);
     if (!(file instanceof File)) return Response.json({ error: "Pilih berkas nota atau Excel terlebih dahulu." }, { status: 400 });
     if (!file.size || file.size > MAX_FILE_BYTES) return Response.json({ error: "Berkas maksimal 8 MB agar diproses aman dan cepat." }, { status: 400 });
@@ -92,22 +122,30 @@ export async function POST(request: Request) {
     // The original upload intentionally exists only in this request's memory.
     // It is never written to Neon, Blob, disk, or an application log.
     const bytes = new Uint8Array(await file.arrayBuffer());
-    const parsed = EXCEL_TYPES.has(mediaType)
-      ? { lines: parseSpreadsheet(bytes), direction: undefined, reference: undefined }
+    const parsed: { lines: ParsedLine[]; direction?: ImportDirection; reference?: string } = EXCEL_TYPES.has(mediaType)
+      ? { ...parseSpreadsheet(bytes), reference: undefined }
       : await parseDocument(bytes, mediaType);
     if (!parsed.lines.length) return Response.json({ error: "Tidak ada baris barang yang berhasil dibaca. Coba foto lebih jelas atau gunakan template Excel." }, { status: 422 });
 
     const db = getDb();
-    const products = await db.prepare("SELECT id,sku,barcode,name,unit FROM products WHERE is_active=1 ORDER BY name").all<{ id: string; sku: string; barcode: string | null; name: string; unit: string }>();
+    const products = await db.prepare("SELECT id,sku,barcode,name,brand,series,size,unit FROM products WHERE is_active=1 ORDER BY name").all<{ id: string; sku: string; barcode: string | null; name: string; brand: string; series: string; size: string; unit: string }>();
     const mapped = parsed.lines.slice(0, 200).map((line) => {
       const sku = normalize(line.sku || "");
       const barcode = normalize(line.barcode || "");
       const name = normalize(line.name || "");
-      const matches = products.results.filter((product) =>
+      const directMatches = products.results.filter((product) =>
         (sku && normalize(product.sku) === sku) ||
         (barcode && normalize(product.barcode || "") === barcode) ||
         (!sku && !barcode && name && normalize(product.name) === name),
       );
+      const series = normalize(line.series || "");
+      const brand = normalize(line.brand || "");
+      const size = normalize(line.size || "");
+      const compositeMatches = !sku && !barcode && brand && series ? products.results.filter((product) => {
+        if (normalize(product.brand) !== brand || (size && normalize(product.size) !== size)) return false;
+        return [product.series, product.name].some((field) => normalize(field) === series);
+      }) : [];
+      const matches = directMatches.length ? directMatches : compositeMatches;
       const product = matches.length === 1 ? matches[0] : undefined;
       return {
         sourceName: line.name || line.sku || line.barcode || "Baris tanpa nama",
@@ -120,7 +158,7 @@ export async function POST(request: Request) {
         status: product && line.quantity > 0 ? "MATCHED" : "REVIEW",
       };
     }).filter((line) => line.quantity > 0);
-    if (!mapped.length) return Response.json({ error: "Jumlah pada dokumen tidak valid. Pastikan kolom Jumlah/Qty terisi." }, { status: 422 });
+    if (!mapped.length) return Response.json({ error: "Jumlah pada dokumen tidak valid. Gunakan kolom Jumlah/Qty untuk mutasi atau Stok untuk stok opname." }, { status: 422 });
     return Response.json({
       ok: true,
       sourceName: file.name,
@@ -132,4 +170,20 @@ export async function POST(request: Request) {
   } catch (error) {
     return apiError(error);
   }
+}
+
+export async function GET(request: Request) {
+  const opname = new URL(request.url).searchParams.get("mode") === "opname";
+  const headers = opname
+    ? ["SKU", "Barcode", "Nama Produk", "Merek", "Seri / Motif", "Ukuran (cm)", "Kualitas", "Stok", "Satuan"]
+    : ["SKU", "Barcode", "Nama Produk", "Merek", "Seri / Motif", "Ukuran (cm)", "Kualitas", "Jumlah", "Satuan"];
+  const sample = opname
+    ? ["KR-600-SNOW", "", "Snow Ivory 60x60", "Indogress", "Snow Ivory", "60 x 60", "KW 3", "700", "dus"]
+    : ["KR-600-SNOW", "", "Snow Ivory 60x60", "Indogress", "Snow Ivory", "60 x 60", "KW 3", "10", "dus"];
+  const csv = `\uFEFF${headers.join(",")}\n${sample.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(",")}\n`;
+  return new Response(csv, { headers: {
+    "content-type": "text/csv; charset=utf-8",
+    "content-disposition": `attachment; filename="template-${opname ? "stok-opname" : "mutasi-stok"}.csv"`,
+    "cache-control": "no-store",
+  } });
 }
