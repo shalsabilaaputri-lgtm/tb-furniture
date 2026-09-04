@@ -79,7 +79,9 @@ export async function POST(request: Request) {
     // One PostgreSQL statement locks, validates, updates, and writes the two
     // ledgers together. A concurrent stock change makes verification false,
     // so this import cannot partially apply only some of its rows.
-    const values = rows.map(() => "(?,?,?,?,?,?,?,?,?)").join(",");
+    // PostgreSQL infers bare VALUES parameters as text in this CTE. Cast each
+    // value explicitly so stock comparisons remain numeric on Neon.
+    const values = rows.map(() => "(?::text,?::double precision,?::double precision,?::text,?::text,?::double precision,?::text,?::text,?::text)").join(",");
     const bindings: unknown[] = [];
     for (const row of rows) {
       const before = Number(row.stock.physicalQty);
