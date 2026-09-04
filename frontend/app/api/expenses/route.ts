@@ -1,5 +1,6 @@
-import { getD1 } from "@/db";
+import { getDb } from "@/db";
 import { apiError, assertBranchAccess, requireApiUser } from "@/lib/api-auth";
+import { createReference } from "@/lib/reference";
 
 export async function POST(request: Request) {
   try {
@@ -10,8 +11,8 @@ export async function POST(request: Request) {
       return Response.json({ error: "Data pengeluaran belum lengkap." }, { status: 400 });
     }
     assertBranchAccess(user, body.branchId);
-    const d1 = getD1();
-    const reference = `EXP-${Date.now().toString().slice(-9)}`;
+    const d1 = getDb();
+    const reference = createReference("EXP");
     await d1.batch([
       d1.prepare("INSERT INTO expenses (id,branch_id,category,amount,payment_method,description,user_email) VALUES (?,?,?,?,?,?,?)")
         .bind(crypto.randomUUID(), body.branchId, body.category.trim(), amount, body.paymentMethod, body.description?.trim() || "", user.email),
@@ -30,10 +31,11 @@ export async function PATCH(request: Request) {
     if (!body.id || !body.branchId || !body.category?.trim() || !body.paymentMethod || !Number.isFinite(amount) || amount <= 0) {
       return Response.json({ error: "Data pengeluaran belum lengkap." }, { status: 400 });
     }
-    assertBranchAccess(user, body.branchId);
-    const d1 = getD1();
+    const d1 = getDb();
     const current = await d1.prepare("SELECT branch_id AS branchId,category,amount,payment_method AS paymentMethod,description FROM expenses WHERE id=?").bind(body.id).first<any>();
     if (!current) return Response.json({ error: "Pengeluaran tidak ditemukan." }, { status: 404 });
+    assertBranchAccess(user, current.branchId);
+    assertBranchAccess(user, body.branchId);
     await d1.batch([
       d1.prepare("UPDATE expenses SET branch_id=?,category=?,amount=?,payment_method=?,description=? WHERE id=?")
         .bind(body.branchId, body.category.trim(), amount, body.paymentMethod, body.description?.trim() || "", body.id),

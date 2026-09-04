@@ -141,7 +141,12 @@ export function ErpClient({ user }: { user: { name: string; email: string } }) {
   }, []);
   useEffect(() => {
     load();
-    const timer = window.setInterval(load, 30000);
+    // Full bootstrap includes products, stock, transactions, and reports.
+    // Refresh it only while the app is visible; mutations already refresh
+    // immediately after a successful save.
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void load();
+    }, 60000);
     return () => window.clearInterval(timer);
   }, [load]);
   const products = useMemo(() => (data?.products ?? []).filter((p) => !query || [p.name,p.sku,p.barcode,p.brand,p.category].some((v) => v?.toLowerCase().includes(query.toLowerCase()))), [data, query]);

@@ -1,16 +1,14 @@
-import { getD1 } from "@/db";
+import { getDb } from "@/db";
 import { apiError, requireApiUser } from "@/lib/api-auth";
 import { can } from "@/lib/access";
-import { ensureSeedData } from "@/lib/seed";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
     const accessUser = await requireApiUser("dashboard.read");
-    await ensureSeedData();
-    const d1 = getD1();
-    const [branchResult, stockResult, movementResult, customerResult, salesResult, performanceResult, transactionResult, transactionItemResult, returnResult, financeResult, receivablePaymentResult, expenseResult, employeeResult, attendanceHistoryResult] = await d1.batch([
+    const d1 = getDb();
+    const [branchResult, stockResult, movementResult, customerResult, performanceResult, transactionResult, transactionItemResult, returnResult, financeResult, receivablePaymentResult, expenseResult, employeeResult, attendanceHistoryResult] = await d1.batch([
       d1.prepare("SELECT id,name,short_name AS shortName,address FROM branches WHERE is_active=1 ORDER BY id"),
       d1.prepare(`SELECT p.id,p.sku,p.barcode,p.name,p.brand,p.category,p.series,p.color,p.size,p.unit,
         p.pieces_per_box AS piecesPerBox,p.sqm_per_box AS sqmPerBox,p.landed_cost AS landedCost,
@@ -30,17 +28,13 @@ export async function GET() {
         FROM stock_movements m JOIN products p ON p.id=m.product_id JOIN branches b ON b.id=m.branch_id
         ORDER BY m.created_at DESC,m.rowid DESC LIMIT 12`),
       d1.prepare("SELECT id,name,whatsapp,type,credit_limit AS creditLimit,outstanding,referral_code AS referralCode FROM customers ORDER BY name"),
-      d1.prepare(`SELECT COALESCE(SUM(s.total),0) AS omzet,COUNT(*) AS transactions,
-        COALESCE(SUM(COALESCE(cost.totalCost, CAST(s.total * 0.82 AS INTEGER))),0) AS hpp,
-        COALESCE(SUM(CASE WHEN s.payment_method='Piutang' THEN s.total-s.paid_amount ELSE 0 END),0) AS newReceivable
-        FROM sales s LEFT JOIN (
-          SELECT sale_id,SUM(cost_price*quantity) AS totalCost FROM sale_items GROUP BY sale_id
-        ) cost ON cost.sale_id=s.id
-        WHERE DATE(s.created_at)=DATE('now') AND s.status!='VOID'`),
       d1.prepare(`SELECT b.id,b.short_name AS branchName,COALESCE(SUM(s.total),0) AS omzet,COUNT(s.id) AS transactions,
         COALESCE(SUM(COALESCE(cost.totalCost,CAST(s.total*0.82 AS INTEGER))),0) AS hpp
         FROM branches b
-        LEFT JOIN sales s ON s.branch_id=b.id AND DATE(s.created_at)=DATE('now') AND s.status!='VOID'
+        LEFT JOIN sales s ON s.branch_id=b.id
+          AND s.created_at >= CURRENT_DATE
+          AND s.created_at < CURRENT_DATE + INTERVAL '1 day'
+          AND s.status!='VOID'
         LEFT JOIN (SELECT sale_id,SUM(cost_price*quantity) AS totalCost FROM sale_items GROUP BY sale_id) cost ON cost.sale_id=s.id
         GROUP BY b.id ORDER BY b.id`),
       d1.prepare(`SELECT s.id,s.invoice_number AS invoiceNumber,s.branch_id AS branchId,b.short_name AS branchName,
@@ -62,12 +56,21 @@ export async function GET() {
         FROM customer_returns cr JOIN sales s ON s.id=cr.sale_id JOIN branches b ON b.id=cr.branch_id
         LEFT JOIN customers c ON c.id=cr.customer_id ORDER BY cr.created_at DESC,cr.rowid DESC LIMIT 30`),
       d1.prepare(`SELECT
-        COALESCE((SELECT SUM(amount) FROM expenses WHERE DATE(created_at)=DATE('now')),0) AS expenseToday,
-        COALESCE((SELECT SUM(amount) FROM expenses WHERE STRFTIME('%Y-%m',created_at)=STRFTIME('%Y-%m','now')),0) AS expenseMonth,
-        COALESCE((SELECT SUM(total) FROM sales WHERE STRFTIME('%Y-%m',created_at)=STRFTIME('%Y-%m','now') AND status!='VOID'),0) AS omzetMonth,
+        COALESCE((SELECT SUM(amount) FROM expenses
+          WHERE created_at >= CURRENT_DATE
+            AND created_at < CURRENT_DATE + INTERVAL '1 day'),0) AS expenseToday,
+        COALESCE((SELECT SUM(amount) FROM expenses
+          WHERE created_at >= date_trunc('month', CURRENT_DATE)
+            AND created_at < date_trunc('month', CURRENT_DATE) + INTERVAL '1 month'),0) AS expenseMonth,
+        COALESCE((SELECT SUM(total) FROM sales
+          WHERE created_at >= date_trunc('month', CURRENT_DATE)
+            AND created_at < date_trunc('month', CURRENT_DATE) + INTERVAL '1 month'
+            AND status!='VOID'),0) AS omzetMonth,
         COALESCE((SELECT SUM(COALESCE(cost.totalCost,CAST(s.total*0.82 AS INTEGER))) FROM sales s
           LEFT JOIN (SELECT sale_id,SUM(cost_price*quantity) AS totalCost FROM sale_items GROUP BY sale_id) cost ON cost.sale_id=s.id
-          WHERE STRFTIME('%Y-%m',s.created_at)=STRFTIME('%Y-%m','now') AND s.status!='VOID'),0) AS hppMonth`),
+          WHERE s.created_at >= date_trunc('month', CURRENT_DATE)
+            AND s.created_at < date_trunc('month', CURRENT_DATE) + INTERVAL '1 month'
+            AND s.status!='VOID'),0) AS hppMonth`),
       d1.prepare(`SELECT rp.id,rp.reference_number AS referenceNumber,rp.customer_id AS customerId,c.name AS customerName,
         rp.branch_id AS branchId,b.short_name AS branchName,rp.amount,rp.method,rp.created_at AS createdAt
         FROM receivable_payments rp JOIN customers c ON c.id=rp.customer_id JOIN branches b ON b.id=rp.branch_id
@@ -176,7 +179,7 @@ export async function GET() {
         lowStock: scopedProducts.filter((product) => product.stocks.reduce((sum: number, item: any) => sum + item.available, 0) <= Number(product.minimumStock)).length,
         outOfStock: scopedProducts.filter((product) => product.stocks.reduce((sum: number, item: any) => sum + item.available, 0) === 0).length,
       },
-    });
+    }, { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {
     return apiError(error);
   }

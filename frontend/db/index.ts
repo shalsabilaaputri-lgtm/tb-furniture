@@ -1,24 +1,28 @@
-import { neon } from "@neondatabase/serverless";
+import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 import { POSTGRES_MIGRATIONS, POSTGRES_SCHEMA } from "./postgres-schema";
 
 type Result<T> = { results: T[]; success: boolean; meta: { changes: number } };
 type BoundQuery = { text: string; values: unknown[] };
-let client: any;
+type QueryResult = { rows?: unknown[]; rowCount?: number | null };
+
+let client: NeonQueryFunction<false, true> | null = null;
 let schemaReady: Promise<void> | null = null;
 
 function normalizeValue(value: unknown): unknown {
   if (value instanceof Date) return value.toISOString();
   if (typeof value === "bigint") return Number(value);
   if (Array.isArray(value)) return value.map(normalizeValue);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, normalizeValue(item)]));
-  }
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, normalizeValue(item)]));
   return value;
 }
 
-function sqlClient() {
+function toResult<T>(result: QueryResult): Result<T> {
+  return { results: (result.rows || []).map(normalizeValue) as T[], success: true, meta: { changes: Number(result.rowCount || 0) } };
+}
+
+function sqlClient(): NeonQueryFunction<false, true> {
   const url = process.env.DATABASE_URL || process.env.POSTGRES_URL;
-  if (!url) throw new Error("DATABASE_URL belum tersedia di Vercel Production.");
+  if (!url) throw new Error("DATABASE_URL Neon belum tersedia di deployment.");
   if (!client) client = neon(url, { fullResults: true });
   return client;
 }
@@ -63,10 +67,8 @@ class Statement {
   query(): BoundQuery { return { text: translate(this.text), values: this.values }; }
   async execute<T>(): Promise<Result<T>> {
     await ensureSchema();
-    const q = this.query();
-    const result = await sqlClient().query(q.text, q.values);
-    const rows = (result.rows || []).map((row: unknown) => normalizeValue(row));
-    return { results: rows as T[], success: true, meta: { changes: Number(result.rowCount || 0) } };
+    const query = this.query();
+    return toResult<T>(await sqlClient().query(query.text, query.values));
   }
   async all<T = Record<string, unknown>>() { return this.execute<T>(); }
   async first<T = Record<string, unknown>>() { return (await this.execute<T>()).results[0] ?? null; }
@@ -77,11 +79,14 @@ const adapter = {
   prepare(text: string) { return new Statement(text); },
   async batch(statements: Statement[]) {
     await ensureSchema();
-    const results = [];
-    for (const statement of statements) results.push(await statement.run());
-    return results;
+    const sql = sqlClient();
+    const queries = statements.map((statement) => {
+      const query = statement.query();
+      return sql.query(query.text, query.values);
+    });
+    const results = await sql.transaction(queries);
+    return results.map((result) => toResult(result));
   },
 };
 
-export function getD1() { return adapter; }
 export function getDb() { return adapter; }

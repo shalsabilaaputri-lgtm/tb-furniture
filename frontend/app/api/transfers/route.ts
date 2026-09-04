@@ -1,5 +1,6 @@
-import { getD1 } from "@/db";
+import { getDb } from "@/db";
 import { apiError, assertBranchAccess, requireApiUser } from "@/lib/api-auth";
+import { createReference } from "@/lib/reference";
 
 type TransferItem = { productId?: string; quantity?: number };
 
@@ -9,7 +10,7 @@ export async function GET(request: Request) {
     const branchParam = new URL(request.url).searchParams.get("branchId");
     const branchId = branchParam && branchParam !== "all" ? branchParam : null;
     if (branchId) assertBranchAccess(user, branchId);
-    const d1 = getD1();
+    const d1 = getDb();
     const result = await d1.prepare(`SELECT t.id,t.transfer_number AS transferNumber,
       t.source_branch_id AS sourceBranchId,sb.short_name AS sourceBranchName,
       t.destination_branch_id AS destinationBranchId,db.short_name AS destinationBranchName,
@@ -41,22 +42,23 @@ export async function POST(request: Request) {
     };
     const sourceBranchId = body.sourceBranchId?.trim();
     const destinationBranchId = body.destinationBranchId?.trim();
-    const items = (body.items ?? []).map((item) => ({ productId: String(item.productId || ""), quantity: Number(item.quantity) })).filter((item) => item.productId && item.quantity > 0);
-    if (!sourceBranchId || !destinationBranchId || sourceBranchId === destinationBranchId || !items.length) {
+    const submittedItems = body.items ?? [];
+    const items = submittedItems.map((item) => ({ productId: String(item.productId || ""), quantity: Number(item.quantity) })).filter((item) => item.productId && Number.isFinite(item.quantity) && item.quantity > 0);
+    if (!sourceBranchId || !destinationBranchId || sourceBranchId === destinationBranchId || !items.length || items.length !== submittedItems.length) {
       return Response.json({ error: "Cabang asal, tujuan, dan barang transfer wajib diisi." }, { status: 400 });
     }
     if (new Set(items.map((item) => item.productId)).size !== items.length) {
       return Response.json({ error: "Produk yang sama tidak boleh berulang." }, { status: 400 });
     }
     assertBranchAccess(user, sourceBranchId);
-    const d1 = getD1();
+    const d1 = getDb();
     const [sourceWarehouse, destinationWarehouse] = await Promise.all([
       d1.prepare("SELECT id FROM warehouses WHERE branch_id=? ORDER BY rowid LIMIT 1").bind(sourceBranchId).first<{ id: string }>(),
       d1.prepare("SELECT id FROM warehouses WHERE branch_id=? ORDER BY rowid LIMIT 1").bind(destinationBranchId).first<{ id: string }>(),
     ]);
     if (!sourceWarehouse || !destinationWarehouse) return Response.json({ error: "Gudang asal atau tujuan belum tersedia." }, { status: 404 });
     const id = crypto.randomUUID();
-    const transferNumber = `TRF-${Date.now().toString().slice(-9)}`;
+    const transferNumber = createReference("TRF");
     await d1.batch([
       d1.prepare(`INSERT INTO stock_transfers
         (id,transfer_number,source_branch_id,source_warehouse_id,destination_branch_id,destination_warehouse_id,status,note,requested_by)
@@ -77,13 +79,14 @@ export async function PATCH(request: Request) {
     if (!body.id || !body.action) return Response.json({ error: "Transfer dan tindakan wajib dipilih." }, { status: 400 });
     const permission = body.action === "APPROVE" ? "transfer.approve" : body.action === "DISPATCH" ? "transfer.dispatch" : "transfer.receive";
     const user = await requireApiUser(permission);
-    const d1 = getD1();
+    const d1 = getDb();
     const transfer = await d1.prepare(`SELECT id,transfer_number AS transferNumber,source_branch_id AS sourceBranchId,
       source_warehouse_id AS sourceWarehouseId,destination_branch_id AS destinationBranchId,
       destination_warehouse_id AS destinationWarehouseId,status FROM stock_transfers WHERE id=?`).bind(body.id).first<any>();
     if (!transfer) return Response.json({ error: "Transfer tidak ditemukan." }, { status: 404 });
 
     if (body.action === "APPROVE") {
+      assertBranchAccess(user, transfer.sourceBranchId);
       const result = await d1.prepare("UPDATE stock_transfers SET status='APPROVED',approved_by=?,approved_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='REQUESTED'")
         .bind(user.email, body.id).run();
       if (!Number(result.meta.changes)) return Response.json({ error: "Transfer sudah diproses atau tidak dapat disetujui." }, { status: 409 });
@@ -97,7 +100,11 @@ export async function PATCH(request: Request) {
             SELECT 1 FROM stock_transfer_items ti LEFT JOIN stocks s
               ON s.product_id=ti.product_id AND s.branch_id=? AND s.warehouse_id=?
             WHERE ti.transfer_id=? AND (s.id IS NULL OR s.physical_qty-s.reserved_qty-s.damaged_qty<ti.quantity)
-          )`).bind(body.id, transfer.sourceBranchId, transfer.sourceWarehouseId, body.id),
+          ) AND NOT EXISTS (
+            SELECT 1 FROM stock_transfer_items ti JOIN stocks s
+              ON s.product_id=ti.product_id AND s.branch_id=? AND s.warehouse_id=?
+            WHERE ti.transfer_id=? GROUP BY ti.product_id HAVING COUNT(s.id)<>1
+          )`).bind(body.id, transfer.sourceBranchId, transfer.sourceWarehouseId, body.id, transfer.sourceBranchId, transfer.sourceWarehouseId, body.id),
         d1.prepare(`INSERT INTO stock_movements
           (id,reference_number,branch_id,warehouse_id,product_id,movement_type,quantity,stock_before,stock_after,reason,user_email)
           SELECT LOWER(HEX(RANDOMBLOB(16))),t.transfer_number,t.source_branch_id,t.source_warehouse_id,ti.product_id,
@@ -117,7 +124,12 @@ export async function PATCH(request: Request) {
     if (body.action === "RECEIVE") {
       assertBranchAccess(user, transfer.destinationBranchId);
       const results = await d1.batch([
-        d1.prepare("UPDATE stock_transfers SET status='RECEIVING',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='IN_TRANSIT'").bind(body.id),
+        d1.prepare(`UPDATE stock_transfers SET status='RECEIVING',updated_at=CURRENT_TIMESTAMP
+          WHERE id=? AND status='IN_TRANSIT' AND NOT EXISTS (
+            SELECT 1 FROM stock_transfer_items ti JOIN stocks s
+              ON s.product_id=ti.product_id AND s.branch_id=? AND s.warehouse_id=?
+            WHERE ti.transfer_id=? GROUP BY ti.product_id HAVING COUNT(s.id)<>1
+          )`).bind(body.id, transfer.destinationBranchId, transfer.destinationWarehouseId, body.id),
         d1.prepare(`INSERT INTO stock_movements
           (id,reference_number,branch_id,warehouse_id,product_id,movement_type,quantity,stock_before,stock_after,reason,user_email)
           SELECT LOWER(HEX(RANDOMBLOB(16))),t.transfer_number,t.destination_branch_id,t.destination_warehouse_id,ti.product_id,

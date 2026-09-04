@@ -4,7 +4,7 @@ Frontend Next.js + TypeScript untuk kasir dan manajemen multi-cabang TB Permata 
 
 ## Fitur aktif
 
-- Dashboard real-time, produk dan harga, stok per cabang, stok menipis, dan stock movement.
+- Dashboard, produk dan harga, stok per cabang, stok menipis, dan stock movement.
 - Kasir dengan kuantitas yang dapat diketik langsung, diskon nominal, ongkir, nota WhatsApp, dan dialog cetak thermal.
 - Transaksi, piutang dan pembayaran, retur, pengeluaran, laporan kinerja, serta audit aktivitas.
 - Transfer antar cabang dengan alur permintaan, persetujuan, pengiriman, dan penerimaan.
@@ -29,9 +29,11 @@ npm run build
 
 ## Database dan migrasi
 
-Deployment Sites memakai binding D1 bernama `DB`, dideklarasikan di `.openai/hosting.json`. Skema TypeScript berada di `db/schema.ts` dan migrasi immutable berada di folder `drizzle/`.
+Hosting berjalan di Sites/Cloudflare, tetapi route API frontend memakai Neon/Postgres melalui `DATABASE_URL` (atau `POSTGRES_URL`) yang disimpan sebagai secret runtime. Skema Neon dan migrasi aman berada di `db/postgres-schema.ts`.
 
-Backend PostgreSQL/NestJS disertakan sebagai folder terpisah dalam paket full-stack. Untuk cutover produksi ke PostgreSQL, deploy API tersebut melalui HTTPS, simpan `SITE_PROXY_SECRET` hanya sebagai secret server, lalu arahkan route API frontend ke URL backend. Secret tidak boleh dimasukkan ke bundle browser.
+Binding D1 yang tercantum di `.openai/hosting.json` tidak digunakan oleh adapter aplikasi ini.
+
+`ALLOW_DEMO_SEED=true` hanya boleh dipakai saat demo lokal. Produksi tidak akan memasukkan stok contoh secara otomatis ketika database kosong.
 
 ## PWA dan printer
 
@@ -39,4 +41,4 @@ Manifest tersedia di `public/manifest.webmanifest`; service worker di `public/sw
 
 ## Pengujian
 
-`npm test` membangun project lalu menjalankan pemeriksaan starter Sites. Build produksi menjadi pemeriksaan utama source aplikasi. Uji rendered-HTML bawaan membutuhkan loader runtime Cloudflare dan dapat gagal di Node biasa karena skema import `cloudflare:workers` tidak didukung oleh loader Node.
+`npm test` membangun project lalu menjalankan pemeriksaan starter Sites. Build produksi menjadi pemeriksaan utama source aplikasi. Uji rendered-HTML memakai loader test yang men-stub binding Cloudflare dan akan gagal bila halaman yang dirender mencoba memakai database tanpa binding yang valid.

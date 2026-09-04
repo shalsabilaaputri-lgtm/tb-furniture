@@ -1,4 +1,4 @@
-import { getD1 } from "@/db";
+import { getDb } from "@/db";
 
 const BRANCHES = [
   ["b1", "TB Permata Keramik — Seyegan", "Seyegan", "Seyegan, Sleman"],
@@ -20,7 +20,12 @@ const PRODUCTS = [
 ] as const;
 
 export async function ensureSeedData() {
-  const d1 = getD1();
+  // Sample inventory must never be inserted merely because a production
+  // database is empty or a deployment points at the wrong Neon project.
+  // Opt in explicitly for local demonstrations only.
+  if (process.env.ALLOW_DEMO_SEED !== "true") return;
+
+  const d1 = getDb();
   const existing = await d1.prepare("SELECT COUNT(*) AS total FROM branches").first<{ total: number }>();
   if ((existing?.total ?? 0) > 0) return;
 

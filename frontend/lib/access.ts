@@ -1,4 +1,4 @@
-import { getD1 } from "@/db";
+import { getDb } from "@/db";
 
 const ROLE_ROWS = [
   ["role-owner", "OWNER", "Owner", "Akses penuh seluruh cabang"],
@@ -54,32 +54,57 @@ export type AccessUser = {
   permissions: string[];
 };
 
+let accessControlReady: Promise<void> | null = null;
+
+/**
+ * Static roles and permissions are application configuration, not request
+ * data. Seed them once per running instance (and safely on a fresh database)
+ * instead of issuing more than a hundred INSERT statements for every API
+ * request.
+ */
+async function ensureAccessControl() {
+  if (!accessControlReady) {
+    accessControlReady = (async () => {
+      const d1 = getDb();
+      const statements = [];
+      for (const role of ROLE_ROWS) {
+        statements.push(d1.prepare("INSERT OR IGNORE INTO roles (id,code,name,description,is_active) VALUES (?,?,?,?,1)").bind(...role));
+      }
+      for (const permission of PERMISSION_ROWS) {
+        statements.push(d1.prepare("INSERT OR IGNORE INTO permissions (id,code,module,name) VALUES (?,?,?,?)").bind(...permission));
+      }
+      for (const role of ROLE_ROWS) {
+        for (const permissionCode of ROLE_PERMISSIONS[role[1]] || []) {
+          const permission = PERMISSION_ROWS.find((row) => row[1] === permissionCode);
+          if (permission) statements.push(d1.prepare("INSERT OR IGNORE INTO role_permissions (id,role_id,permission_id) VALUES (?,?,?)").bind(`${role[0]}:${permission[0]}`, role[0], permission[0]));
+        }
+      }
+      await d1.batch(statements);
+    })().catch((error) => {
+      accessControlReady = null;
+      throw error;
+    });
+  }
+  await accessControlReady;
+}
+
 export async function resolveAccessUser(identity: { email: string; displayName: string }) {
-  const d1 = getD1();
-  const statements = [];
-  for (const role of ROLE_ROWS) {
-    statements.push(d1.prepare("INSERT OR IGNORE INTO roles (id,code,name,description,is_active) VALUES (?,?,?,?,1)").bind(...role));
-  }
-  for (const permission of PERMISSION_ROWS) {
-    statements.push(d1.prepare("INSERT OR IGNORE INTO permissions (id,code,module,name) VALUES (?,?,?,?)").bind(...permission));
-  }
-  for (const role of ROLE_ROWS) {
-    for (const permissionCode of ROLE_PERMISSIONS[role[1]] || []) {
-      const permission = PERMISSION_ROWS.find((row) => row[1] === permissionCode);
-      if (permission) statements.push(d1.prepare("INSERT OR IGNORE INTO role_permissions (id,role_id,permission_id) VALUES (?,?,?)").bind(`${role[0]}:${permission[0]}`, role[0], permission[0]));
-    }
-  }
-  await d1.batch(statements);
+  const d1 = getDb();
+  await ensureAccessControl();
 
-  const userCount = await d1.prepare("SELECT COUNT(*) AS total FROM app_users").first<{ total: number }>();
-  if (!Number(userCount?.total || 0)) {
-    await d1.prepare("INSERT OR IGNORE INTO app_users (id,email,name,role_id,branch_id,is_active) VALUES (?,?,?,'role-owner',NULL,1)")
-      .bind(crypto.randomUUID(), identity.email.toLowerCase(), identity.displayName).run();
-  }
-
-  const user = await d1.prepare(`SELECT u.id,u.email,u.name,u.role_id AS roleId,r.code AS roleCode,r.name AS roleName,u.branch_id AS branchId
+  let user = await d1.prepare(`SELECT u.id,u.email,u.name,u.role_id AS roleId,r.code AS roleCode,r.name AS roleName,u.branch_id AS branchId
     FROM app_users u JOIN roles r ON r.id=u.role_id
     WHERE LOWER(u.email)=LOWER(?) AND u.is_active=1 AND r.is_active=1`).bind(identity.email).first<any>();
+  if (!user) {
+    const userCount = await d1.prepare("SELECT COUNT(*) AS total FROM app_users").first<{ total: number }>();
+    if (!Number(userCount?.total || 0)) {
+      await d1.prepare("INSERT INTO app_users (id,email,name,role_id,branch_id,is_active) VALUES (?,?,?,'role-owner',NULL,1) ON CONFLICT DO NOTHING")
+        .bind(crypto.randomUUID(), identity.email.toLowerCase(), identity.displayName).run();
+      user = await d1.prepare(`SELECT u.id,u.email,u.name,u.role_id AS roleId,r.code AS roleCode,r.name AS roleName,u.branch_id AS branchId
+        FROM app_users u JOIN roles r ON r.id=u.role_id
+        WHERE LOWER(u.email)=LOWER(?) AND u.is_active=1 AND r.is_active=1`).bind(identity.email).first<any>();
+    }
+  }
   if (!user) return null;
   const permissions = await d1.prepare(`SELECT p.code FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id
     WHERE rp.role_id=? ORDER BY p.code`).bind(user.roleId).all<{ code: string }>();

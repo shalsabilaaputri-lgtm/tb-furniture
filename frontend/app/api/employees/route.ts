@@ -1,4 +1,4 @@
-import { getD1 } from "@/db";
+import { getDb } from "@/db";
 import { apiError, assertBranchAccess, requireApiUser } from "@/lib/api-auth";
 
 type EmployeeInput = {
@@ -25,7 +25,7 @@ export async function POST(request: Request) {
     }
     assertBranchAccess(user, body.branchId);
     const id = crypto.randomUUID();
-    const d1 = getD1();
+    const d1 = getDb();
     await d1.batch([
       d1.prepare(`INSERT INTO employees (id,branch_id,name,position,phone,scheduled_start)
         VALUES (?,?,?,?,?,?)`).bind(id, body.branchId, name, body.position?.trim() || "Karyawan Toko", body.phone?.trim() || "", scheduledStart),
@@ -45,10 +45,14 @@ export async function PATCH(request: Request) {
     if (!body.id || !body.branchId || !name || !validTime(scheduledStart)) {
       return Response.json({ error: "Data karyawan belum lengkap." }, { status: 400 });
     }
-    assertBranchAccess(user, body.branchId);
-    const d1 = getD1();
-    const current = await d1.prepare("SELECT id FROM employees WHERE id=? AND is_active=1").bind(body.id).first();
+    const d1 = getDb();
+    const current = await d1.prepare("SELECT id,branch_id AS branchId FROM employees WHERE id=? AND is_active=1").bind(body.id).first<{ id: string; branchId: string }>();
     if (!current) return Response.json({ error: "Karyawan tidak ditemukan." }, { status: 404 });
+    // Check both locations. Otherwise a branch-scoped manager could move an
+    // employee from a branch they cannot access by submitting their own branch
+    // as the new value.
+    assertBranchAccess(user, current.branchId);
+    assertBranchAccess(user, body.branchId);
     await d1.batch([
       d1.prepare(`UPDATE employees SET branch_id=?,name=?,position=?,phone=?,scheduled_start=? WHERE id=?`)
         .bind(body.branchId, name, body.position?.trim() || "Karyawan Toko", body.phone?.trim() || "", scheduledStart, body.id),

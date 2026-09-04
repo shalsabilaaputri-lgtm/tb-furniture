@@ -1,5 +1,6 @@
-import { getD1 } from "@/db";
+import { getDb } from "@/db";
 import { apiError, assertBranchAccess, requireApiUser } from "@/lib/api-auth";
+import { createReference } from "@/lib/reference";
 
 export async function POST(request: Request) {
   try {
@@ -15,7 +16,7 @@ export async function POST(request: Request) {
     }
     assertBranchAccess(user, branchId);
 
-    const d1 = getD1();
+    const d1 = getDb();
     const stock = await d1.prepare(`SELECT s.id,s.warehouse_id AS warehouseId,s.physical_qty AS physicalQty,s.reserved_qty AS reservedQty,s.damaged_qty AS damagedQty
       FROM stocks s WHERE s.branch_id=? AND s.product_id=? ORDER BY s.rowid LIMIT 1`).bind(branchId, productId).first<any>();
     if (!stock) return Response.json({ error: "Lokasi stok produk tidak ditemukan." }, { status: 404 });
@@ -27,7 +28,7 @@ export async function POST(request: Request) {
     }
 
     const id = crypto.randomUUID();
-    const reference = `${payload.type === "IN" ? "BM" : payload.type === "OUT" ? "BK" : "ADJ"}-${Date.now().toString().slice(-8)}`;
+    const reference = createReference(payload.type === "IN" ? "BM" : payload.type === "OUT" ? "BK" : "ADJ");
     const movementType = payload.type === "IN" ? "GOODS_IN" : payload.type === "OUT" ? "GOODS_OUT" : "ADJUSTMENT";
     const movementQuantity = payload.type === "IN" ? quantity : payload.type === "OUT" ? -quantity : after - before;
     const action = payload.type === "IN" ? "Barang masuk" : payload.type === "OUT" ? "Barang keluar" : "Penyesuaian stok";

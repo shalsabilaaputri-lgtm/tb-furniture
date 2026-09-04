@@ -1,5 +1,6 @@
-import { getD1 } from "@/db";
+import { getDb } from "@/db";
 import { apiError, assertBranchAccess, requireApiUser } from "@/lib/api-auth";
+import { createReference } from "@/lib/reference";
 
 export async function POST(request: Request) {
   try {
@@ -10,12 +11,12 @@ export async function POST(request: Request) {
       return Response.json({ error: "Data pembayaran piutang belum lengkap." }, { status: 400 });
     }
     assertBranchAccess(user, body.branchId);
-    const d1 = getD1();
+    const d1 = getDb();
     const customer = await d1.prepare("SELECT outstanding FROM customers WHERE id=?").bind(body.customerId).first<any>();
     if (!customer || amount > Number(customer.outstanding)) return Response.json({ error: "Pembayaran melebihi sisa piutang." }, { status: 409 });
     const before = Number(customer.outstanding);
     const after = before - amount;
-    const reference = `ARP-${Date.now().toString().slice(-9)}`;
+    const reference = createReference("ARP");
     const results = await d1.batch([
       d1.prepare("UPDATE customers SET outstanding=? WHERE id=? AND outstanding=?").bind(after, body.customerId, before),
       d1.prepare(`INSERT INTO receivable_payments (id,customer_id,branch_id,amount,method,reference_number,user_email)

@@ -13,6 +13,7 @@ export const metadata: Metadata = {
   manifest: "/manifest.webmanifest",
   applicationName: "TB Permata Keramik ERP",
   appleWebApp: { capable: true, statusBarStyle: "default", title: "TB Permata" },
+  other: { "codex-preview": "development" },
 };
 
 export default function RootLayout({

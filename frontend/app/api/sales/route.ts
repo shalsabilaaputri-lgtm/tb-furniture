@@ -1,6 +1,7 @@
-import { getD1 } from "@/db";
+import { getDb } from "@/db";
 import { apiError, assertBranchAccess, requireApiUser } from "@/lib/api-auth";
 import { can } from "@/lib/access";
+import { createReference } from "@/lib/reference";
 
 type CartItem = { productId: string; quantity: number; unitPrice: number };
 
@@ -20,13 +21,14 @@ export async function POST(request: Request) {
       paidAmount?: number;
     };
     const branchId = body.branchId?.trim();
-    const items = (body.items ?? []).filter((item) => item.productId && Number(item.quantity) > 0);
-    if (!branchId || !items.length) {
+    const submittedItems = body.items ?? [];
+    const items = submittedItems.filter((item) => item.productId && Number.isFinite(Number(item.quantity)) && Number(item.quantity) > 0 && Number.isFinite(Number(item.unitPrice)) && Number(item.unitPrice) >= 0);
+    if (!branchId || !items.length || items.length !== submittedItems.length) {
       return Response.json({ error: "Cabang dan produk penjualan wajib dipilih." }, { status: 400 });
     }
     assertBranchAccess(user, branchId);
 
-    const d1 = getD1();
+    const d1 = getDb();
     const resolved = [] as Array<CartItem & {
       name: string; unit: string; costPrice: number; minimumPrice: number;
       stockId: string; warehouseId: string; before: number; after: number;
@@ -55,6 +57,9 @@ export async function POST(request: Request) {
       });
     }
 
+    if (!Number.isFinite(Number(body.discount ?? 0)) || !Number.isFinite(Number(body.deliveryDistance ?? 0)) || !Number.isFinite(Number(body.deliveryFee ?? 0)) || !Number.isFinite(Number(body.paidAmount ?? 0))) {
+      return Response.json({ error: "Nominal transaksi tidak valid." }, { status: 400 });
+    }
     const subtotal = resolved.reduce((sum, item) => sum + Math.round(item.quantity * item.unitPrice), 0);
     const discount = Math.max(0, Math.round(Number(body.discount) || 0));
     if (discount > subtotal) {
@@ -92,7 +97,7 @@ export async function POST(request: Request) {
     }
 
     const saleId = crypto.randomUUID();
-    const invoiceNumber = `INV-${branchId.toUpperCase()}-${Date.now().toString().slice(-9)}`;
+    const invoiceNumber = createReference(`INV-${branchId.toUpperCase()}`);
     const statements: any[] = [];
     for (const item of resolved) {
       statements.push(d1.prepare("UPDATE stocks SET physical_qty=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND physical_qty=?").bind(item.after, item.stockId, item.before));

@@ -1,4 +1,4 @@
-import { getD1 } from "@/db";
+import { getDb } from "@/db";
 import { apiError, requireApiUser } from "@/lib/api-auth";
 import { hashPassword } from "@/lib/password";
 
@@ -9,7 +9,7 @@ async function validateInput(body: UserInput) {
   const email = body.email?.trim().toLowerCase() || "";
   const name = body.name?.trim() || "";
   if (!emailPattern.test(email) || !name || !body.roleId) return { error: "Nama, email, dan peran wajib diisi dengan benar." } as const;
-  const d1 = getD1();
+  const d1 = getDb();
   const role = await d1.prepare("SELECT id,code FROM roles WHERE id=? AND is_active=1").bind(body.roleId).first<any>();
   if (!role) return { error: "Peran tidak ditemukan." } as const;
   const branchId = body.branchId || null;
@@ -24,7 +24,7 @@ async function validateInput(body: UserInput) {
 export async function GET() {
   try {
     await requireApiUser("user.manage");
-    const d1 = getD1();
+    const d1 = getDb();
     const [users, roles, permissions] = await d1.batch([
       d1.prepare(`SELECT u.id,u.email,u.name,u.role_id AS roleId,r.code AS roleCode,r.name AS roleName,
         u.branch_id AS branchId,b.short_name AS branchName,u.is_active AS isActive,u.created_at AS createdAt
@@ -49,7 +49,7 @@ export async function POST(request: Request) {
     const password = body.password || "";
     if (password.length < 6) return Response.json({ error: "Password minimal 6 karakter." }, { status: 400 });
     const passwordHash = await hashPassword(password);
-    const d1 = getD1(); const id = crypto.randomUUID();
+    const d1 = getDb(); const id = crypto.randomUUID();
     await d1.batch([
       d1.prepare("INSERT INTO app_users (id,email,name,role_id,branch_id,password_hash,is_active) VALUES (?,?,?,?,?,?,1)")
         .bind(id, valid.email, valid.name, valid.role.id, valid.branchId, passwordHash),
@@ -69,7 +69,7 @@ export async function PATCH(request: Request) {
     if ("error" in valid) return Response.json({ error: valid.error }, { status: 400 });
     if (body.id === actor.id && body.isActive === false) return Response.json({ error: "Akun sendiri tidak dapat dinonaktifkan." }, { status: 409 });
     if (body.id === actor.id && valid.role.code !== "OWNER") return Response.json({ error: "Owner tidak dapat menurunkan peran akunnya sendiri." }, { status: 409 });
-    const d1 = getD1();
+    const d1 = getDb();
     const current = await d1.prepare("SELECT id FROM app_users WHERE id=?").bind(body.id).first();
     if (!current) return Response.json({ error: "Pengguna tidak ditemukan." }, { status: 404 });
     const newPassword = (body.password || "").trim();

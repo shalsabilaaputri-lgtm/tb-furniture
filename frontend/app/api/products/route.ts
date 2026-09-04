@@ -1,4 +1,4 @@
-import { getD1 } from "@/db";
+import { getDb } from "@/db";
 import { apiError, requireApiUser } from "@/lib/api-auth";
 
 export async function POST(request: Request) {
@@ -9,9 +9,16 @@ export async function POST(request: Request) {
     if (required.some((key) => !String(body[key] ?? "").trim())) {
       return Response.json({ error: "SKU, nama, merek, kategori, dan satuan wajib diisi." }, { status: 400 });
     }
-    const d1 = getD1();
+    const numericValues = ["purchasePrice", "landedCost", "sellingPrice", "wholesalePrice", "projectPrice", "minimumPrice", "minimumStock"];
+    if (!Number.isFinite(Number(body.sellingPrice)) || numericValues.some((key) => body[key] !== undefined && (!Number.isFinite(Number(body[key])) || Number(body[key]) < 0))) {
+      return Response.json({ error: "Harga dan stok minimum harus berupa angka nol atau lebih." }, { status: 400 });
+    }
+    if (Number(body.sellingPrice) < Number(body.minimumPrice || 0)) {
+      return Response.json({ error: "Harga jual tidak boleh di bawah harga minimum." }, { status: 400 });
+    }
+    const d1 = getDb();
     const id = crypto.randomUUID();
-    const branches = await d1.prepare("SELECT DISTINCT ON (b.id) b.id,w.id AS warehouseId FROM branches b JOIN warehouses w ON w.branch_id=b.id WHERE b.is_active=1 ORDER BY b.id,w.id").all<any>();
+    const branches = await d1.prepare("SELECT b.id,MIN(w.id) AS warehouseId FROM branches b JOIN warehouses w ON w.branch_id=b.id WHERE b.is_active=1 GROUP BY b.id").all<any>();
     const statements = [
       d1.prepare(`INSERT INTO products
         (id,sku,barcode,name,brand,category,series,color,size,unit,pieces_per_box,sqm_per_box,purchase_price,landed_cost,selling_price,wholesale_price,project_price,minimum_price,minimum_stock,is_active)
@@ -46,7 +53,7 @@ export async function PATCH(request: Request) {
     const body = await request.json() as Record<string, unknown>;
     const id = String(body.id ?? "");
     if (!id) return Response.json({ error: "Produk tidak ditemukan." }, { status: 404 });
-    const d1 = getD1();
+    const d1 = getDb();
     const current = await d1.prepare("SELECT selling_price AS sellingPrice, name, pieces_per_box AS piecesPerBox, sqm_per_box AS sqmPerBox FROM products WHERE id=?").bind(id).first<any>();
     if (!current) return Response.json({ error: "Produk tidak ditemukan." }, { status: 404 });
 
@@ -60,6 +67,10 @@ export async function PATCH(request: Request) {
       const wholesalePrice = Math.round(Number(body.wholesalePrice)) || sellingPrice;
       const projectPrice = Math.round(Number(body.projectPrice)) || wholesalePrice;
       const minimumPrice = Math.round(Number(body.minimumPrice)) || 0;
+      const numericValues = [body.landedCost, body.sellingPrice, body.wholesalePrice, body.projectPrice, body.minimumPrice, body.minimumStock];
+      if (numericValues.some((value) => value !== undefined && (!Number.isFinite(Number(value)) || Number(value) < 0)) || sellingPrice < minimumPrice) {
+        return Response.json({ error: "Harga dan stok minimum tidak valid." }, { status: 400 });
+      }
       await d1.batch([
         d1.prepare(`UPDATE products SET
           sku=?,barcode=?,name=?,brand=?,category=?,series=?,color=?,size=?,unit=?,
@@ -101,7 +112,7 @@ export async function DELETE(request: Request) {
     const user = await requireApiUser("product.update");
     const id = new URL(request.url).searchParams.get("id") || "";
     if (!id) return Response.json({ error: "Produk tidak ditemukan." }, { status: 404 });
-    const d1 = getD1();
+    const d1 = getDb();
     const current = await d1.prepare("SELECT name FROM products WHERE id=? AND is_active=1").bind(id).first<any>();
     if (!current) return Response.json({ error: "Produk tidak ditemukan." }, { status: 404 });
     // Soft delete: products are referenced by sale_items/stocks/stock_movements

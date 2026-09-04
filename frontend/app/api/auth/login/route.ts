@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { configuredOwner, createSession } from "@/lib/session";
 import { verifyPassword } from "@/lib/password";
-import { getD1 } from "@/db";
+import { getDb } from "@/db";
 
 export async function POST(request: NextRequest) {
   const form = await request.formData();
@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
   const owner = configuredOwner();
   if (!owner.password || !process.env.AUTH_SECRET) return NextResponse.redirect(new URL("/login?error=config", request.url), 303);
 
-  const d1 = getD1();
+  const d1 = getDb();
 
   if (email === owner.email && password === owner.password) {
     // AUTH_OWNER_EMAIL may have been changed in Vercel after the original

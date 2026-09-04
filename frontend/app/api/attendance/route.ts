@@ -1,4 +1,4 @@
-import { getD1 } from "@/db";
+import { getDb } from "@/db";
 import { apiError, assertBranchAccess, requireApiUser } from "@/lib/api-auth";
 
 function jakartaNow() {
@@ -18,7 +18,7 @@ export async function POST(request: Request) {
     if (!body.employeeId || !["CHECK_IN", "ABSENT"].includes(body.action || "")) {
       return Response.json({ error: "Karyawan dan status presensi wajib dipilih." }, { status: 400 });
     }
-    const d1 = getD1();
+    const d1 = getDb();
     const employee = await d1.prepare(`SELECT id,branch_id AS branchId,name,scheduled_start AS scheduledStart
       FROM employees WHERE id=? AND is_active=1`).bind(body.employeeId).first<any>();
     if (!employee) return Response.json({ error: "Karyawan tidak ditemukan." }, { status: 404 });

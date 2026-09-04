@@ -31,4 +31,6 @@ CREATE INDEX IF NOT EXISTS idx_movements_branch_date ON stock_movements(branch_i
 // Always safe to re-run (IF NOT EXISTS / IF EXISTS everywhere).
 export const POSTGRES_MIGRATIONS = `
 ALTER TABLE app_users ADD COLUMN IF NOT EXISTS password_hash text;
+CREATE INDEX IF NOT EXISTS idx_sales_created_at ON sales(created_at);
+CREATE INDEX IF NOT EXISTS idx_expenses_created_at ON expenses(created_at);
 `;
