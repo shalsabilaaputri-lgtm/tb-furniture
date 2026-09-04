@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 
-type Branch = { id: string; name: string };
+type Branch = { id: string; name: string; shortName?: string; address?: string };
 type DraftRow = { sourceName: string; sku: string; barcode: string; quantity: number; unit: string; brand: string; series: string; size: string; productId: string | null; productName: string | null; candidates: Array<{ id: string; name: string; sku: string }>; status: "MATCHED" | "OVERLAP" | "NEW" };
 type ImportDirection = "IN" | "OUT" | "ADJUST";
 type Draft = { sourceName: string; direction: ImportDirection; reference: string; rows: DraftRow[]; privacy: string };
@@ -25,24 +25,48 @@ export function StockImportDialog({
   const [draft, setDraft] = useState<Draft | null>(null);
   const [parsing, setParsing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [detectedBranchName, setDetectedBranchName] = useState<string | null>(null);
+
+  const branchForFile = (fileName: string) => {
+    const normalizedFileName = fileName
+      .replace(/\.[^.]+$/, "")
+      .toLocaleLowerCase("id-ID")
+      .replace(/[^a-z0-9]+/g, "");
+    const candidates = branches.map((branch) => {
+      const labels = [branch.shortName, branch.name, branch.address]
+        .filter((label): label is string => Boolean(label))
+        .map((label) => label.toLocaleLowerCase("id-ID").replace(/[^a-z0-9]+/g, ""))
+        .filter((label) => label.length >= 4 && normalizedFileName.includes(label));
+      return { branch, score: Math.max(0, ...labels.map((label) => label.length)) };
+    }).filter((candidate) => candidate.score > 0).sort((left, right) => right.score - left.score);
+    return candidates[0]?.branch;
+  };
 
   useEffect(() => {
     if (!open) return;
     setBranchId(defaultBranch === "all" ? branches[0]?.id || "" : defaultBranch);
     setDraft(null);
+    setDetectedBranchName(null);
     // Do not depend on the branches array identity: the dashboard refreshes in
     // the background and returns a new array every time. Resetting here would
     // discard a reviewed import draft while the dialog is still open.
   }, [open, defaultBranch]);
 
-  const reset = () => { setDraft(null); setParsing(false); setSaving(false); };
+  const reset = () => { setDraft(null); setParsing(false); setSaving(false); setDetectedBranchName(null); };
   const closeDialog = () => { reset(); close(); };
 
   const parse = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    if (!(form.get("file") instanceof File) || !(form.get("file") as File).size) return toast.error("Pilih berkas terlebih dahulu.");
-    form.set("branchId", branchId); form.set("direction", direction);
+    const file = form.get("file");
+    if (!(file instanceof File) || !file.size) return toast.error("Pilih berkas terlebih dahulu.");
+    const detectedBranch = branchForFile(file.name);
+    const targetBranchId = detectedBranch?.id || branchId;
+    if (detectedBranch) {
+      setBranchId(detectedBranch.id);
+      setDetectedBranchName(detectedBranch.name);
+    }
+    form.set("branchId", targetBranchId); form.set("direction", direction);
     setParsing(true);
     try {
       const response = await fetch("/api/stock/import", { method: "POST", body: form });
@@ -86,6 +110,13 @@ export function StockImportDialog({
     finally { setSaving(false); }
   };
 
+  const onFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const detectedBranch = event.currentTarget.files?.[0] ? branchForFile(event.currentTarget.files[0].name) : undefined;
+    if (!detectedBranch) return setDetectedBranchName(null);
+    setBranchId(detectedBranch.id);
+    setDetectedBranchName(detectedBranch.name);
+  };
+
   return <Dialog open={open} onOpenChange={(value) => !value && closeDialog()}>
     <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-4xl">
       <DialogHeader>
@@ -98,7 +129,7 @@ export function StockImportDialog({
           <div className="space-y-2"><Label>Jenis mutasi</Label><Select value={direction} onValueChange={(value: ImportDirection) => setDirection(value)}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="IN">Barang masuk</SelectItem><SelectItem value="OUT">Barang keluar</SelectItem><SelectItem value="ADJUST">Stok opname (jumlah akhir)</SelectItem></SelectContent></Select></div>
         </div>
         <div className="flex flex-wrap gap-2 text-xs"><a className="rounded-md border bg-white px-3 py-2 font-medium text-[#991b1b] hover:bg-red-50" href="/api/stock/import?mode=mutasi">Unduh template barang masuk/keluar</a><a className="rounded-md border bg-white px-3 py-2 font-medium text-[#991b1b] hover:bg-red-50" href="/api/stock/import?mode=opname">Unduh template stok opname</a></div>
-        <div className="rounded-xl border border-dashed bg-slate-50 p-5"><Label htmlFor="stock-import-file" className="flex cursor-pointer flex-col items-center gap-2 text-center"><Upload className="size-7 text-[#991b1b]" /><b>Pilih PDF, foto, Excel, atau CSV</b><span className="text-xs font-normal text-slate-500">JPG, PNG, WEBP, PDF, XLSX, XLS, CSV • maksimum 8 MB</span></Label><Input id="stock-import-file" name="file" type="file" required accept=".xlsx,.xls,.csv,.pdf,image/jpeg,image/png,image/webp" className="sr-only" /></div>
+        <div className="rounded-xl border border-dashed bg-slate-50 p-5"><Label htmlFor="stock-import-file" className="flex cursor-pointer flex-col items-center gap-2 text-center"><Upload className="size-7 text-[#991b1b]" /><b>Pilih PDF, foto, Excel, atau CSV</b><span className="text-xs font-normal text-slate-500">JPG, PNG, WEBP, PDF, XLSX, XLS, CSV • maksimum 8 MB</span></Label><Input id="stock-import-file" name="file" type="file" required accept=".xlsx,.xls,.csv,.pdf,image/jpeg,image/png,image/webp" onChange={onFileChange} className="sr-only" />{detectedBranchName && <p className="mt-3 text-center text-xs font-semibold text-emerald-700">Cabang terdeteksi dari nama berkas: {detectedBranchName}</p>}</div>
         <div className="flex gap-2 rounded-lg bg-emerald-50 p-3 text-xs text-emerald-800"><ShieldCheck className="size-4 shrink-0" />Berkas asli diproses hanya di memori, tidak disimpan ke Neon, dan langsung dibuang setelah pembacaan selesai.</div>
         <DialogFooter><Button type="button" variant="outline" onClick={closeDialog}>Batal</Button><Button disabled={parsing || !branchId} className="bg-[#991b1b] hover:bg-[#7f1d1d]">{parsing ? <Loader2 className="animate-spin" /> : <FileScan />} Baca berkas</Button></DialogFooter>
       </form> : <div className="space-y-4">

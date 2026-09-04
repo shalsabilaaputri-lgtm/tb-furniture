@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, Loader2, Pencil, Plus, ShieldCheck, UserCog, Users } from "lucide-react";
+import { Check, Loader2, Pencil, Plus, ShieldCheck, Trash2, UserCog, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,17 +19,21 @@ type AccessUser = { id: string; email: string; name: string; roleId: string; rol
 type Role = { id: string; code: string; name: string; description: string; permissionCount: number };
 type Permission = { roleCode: string; code: string; module: string; name: string };
 type AccessData = { users: AccessUser[]; roles: Role[]; permissions: Permission[] };
+type DemoPreview = { products: number; stocks: number; movements: number; sales: number; customers: number };
 
 async function json(url: string, init?: RequestInit) {
   const response = await fetch(url, init); const data = await response.json();
   if (!response.ok) throw new Error(data.error || "Permintaan gagal."); return data;
 }
 
-export function UserAccessPanel({ branches }: { branches: Branch[] }) {
+export function UserAccessPanel({ branches, isOwner }: { branches: Branch[]; isOwner: boolean }) {
   const [data, setData] = useState<AccessData | null>(null);
   const [editing, setEditing] = useState<AccessUser | "new" | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [demoPreview, setDemoPreview] = useState<DemoPreview | null>(null);
+  const [checkingDemo, setCheckingDemo] = useState(false);
+  const [cleaningDemo, setCleaningDemo] = useState(false);
   const load = async () => { try { setError(""); setData(await json("/api/access")); } catch (e) { setError(e instanceof Error ? e.message : "Data akses gagal dimuat."); } };
   useEffect(() => { load(); }, []);
   const modules = useMemo(() => Array.from(new Set(data?.permissions.map((item) => item.module) || [])), [data]);
@@ -47,6 +51,24 @@ export function UserAccessPanel({ branches }: { branches: Branch[] }) {
     } catch (e) { toast.error(e instanceof Error ? e.message : "Akses gagal disimpan."); } finally { setSaving(false); }
   }
 
+  async function inspectDemoData() {
+    setCheckingDemo(true);
+    try { const result = await json("/api/admin/demo-data"); setDemoPreview(result.preview); }
+    catch (e) { toast.error(e instanceof Error ? e.message : "Data contoh tidak dapat diperiksa."); }
+    finally { setCheckingDemo(false); }
+  }
+
+  async function removeDemoData() {
+    if (!demoPreview) return;
+    setCleaningDemo(true);
+    try {
+      const result = await json("/api/admin/demo-data", { method: "DELETE", headers: { "x-confirm-demo-cleanup": "DELETE-DEMO-DATA" } });
+      setDemoPreview({ products: 0, stocks: 0, movements: 0, sales: 0, customers: 0 });
+      toast.success(`${result.removed.products} produk contoh dan stok terkait berhasil dibersihkan.`);
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Data contoh tidak dapat dibersihkan."); }
+    finally { setCleaningDemo(false); }
+  }
+
   if (!data && !error) return <div className="space-y-4"><Skeleton className="h-12 w-72"/><Skeleton className="h-80 rounded-xl"/></div>;
   if (error) return <Card><CardContent className="py-10 text-center"><p className="font-bold">Manajemen akses belum dapat dibuka</p><p className="text-sm text-slate-500">{error}</p><Button className="mt-4" onClick={load}>Coba Lagi</Button></CardContent></Card>;
   if (!data) return null;
@@ -56,6 +78,7 @@ export function UserAccessPanel({ branches }: { branches: Branch[] }) {
     <div className="grid gap-4 sm:grid-cols-3"><Summary icon={Users} label="Pengguna aktif" value={String(data.users.filter((item) => Boolean(item.isActive)).length)}/><Summary icon={UserCog} label="Peran sistem" value={String(data.roles.length)}/><Summary icon={ShieldCheck} label="Izin backend" value={String(new Set(data.permissions.map((item) => item.code)).size)}/></div>
     <Card className="gap-0 overflow-hidden py-0"><div className="border-b px-5 py-4"><h2 className="font-black">Daftar Pengguna</h2><p className="text-sm text-slate-500">Data peran dan izin akses per pengguna.</p></div><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead className="pl-5">Nama</TableHead><TableHead>Email</TableHead><TableHead>Peran</TableHead><TableHead>Cabang</TableHead><TableHead>Status</TableHead><TableHead className="pr-5 text-right">Aksi</TableHead></TableRow></TableHeader><TableBody>{data.users.map((item) => <TableRow key={item.id}><TableCell className="pl-5 font-bold">{item.name}</TableCell><TableCell>{item.email}</TableCell><TableCell><Badge variant="outline">{item.roleName}</Badge></TableCell><TableCell>{item.branchName || "Semua Cabang"}</TableCell><TableCell><Badge className={item.isActive ? "bg-emerald-600" : "bg-slate-400"}>{item.isActive ? "Aktif" : "Nonaktif"}</Badge></TableCell><TableCell className="pr-5 text-right"><Button size="sm" variant="outline" onClick={() => setEditing(item)}><Pencil/> Edit</Button></TableCell></TableRow>)}</TableBody></Table></div></Card>
     <Card className="gap-3"><CardHeader><CardTitle>Matriks Peran & Izin</CardTitle><p className="text-sm text-slate-500">Centang berarti peran tersebut diizinkan melakukan fungsi pada modul itu.</p></CardHeader><CardContent className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Modul</TableHead>{data.roles.map((role) => <TableHead key={role.id} className="text-center">{role.name}</TableHead>)}</TableRow></TableHeader><TableBody>{modules.map((module) => <TableRow key={module}><TableCell className="font-bold">{module}</TableCell>{data.roles.map((role) => <TableCell key={role.id} className="text-center">{data.permissions.some((item) => item.module === module && item.roleCode === role.code) ? <Check className="mx-auto size-5 text-emerald-600"/> : <span className="text-slate-300">—</span>}</TableCell>)}</TableRow>)}</TableBody></Table></CardContent></Card>
+    {isOwner && <Card className="border-red-200 bg-red-50/40"><CardHeader><CardTitle className="text-[#991b1b]">Pembersihan data contoh</CardTitle><p className="text-sm text-slate-600">Hanya menghapus stok, mutasi, transaksi, dan produk contoh ber-ID p1–p8. Data impor Anda (misalnya IMP-OPN-…) tidak termasuk.</p></CardHeader><CardContent className="flex flex-wrap items-center gap-3"><Button variant="outline" onClick={inspectDemoData} disabled={checkingDemo || cleaningDemo}>{checkingDemo && <Loader2 className="animate-spin"/>} Periksa data contoh</Button>{demoPreview && <p className="text-sm text-slate-600">Target: {demoPreview.products} produk, {demoPreview.stocks} stok, {demoPreview.movements} mutasi, {demoPreview.sales} transaksi, {demoPreview.customers} pelanggan.</p>}<Button variant="destructive" onClick={removeDemoData} disabled={!demoPreview || cleaningDemo || !Object.values(demoPreview).some(Boolean)}>{cleaningDemo ? <Loader2 className="animate-spin"/> : <Trash2/>} Hapus data contoh</Button></CardContent></Card>}
     <Dialog open={editing !== null} onOpenChange={(value) => !value && setEditing(null)}><DialogContent><DialogHeader><DialogTitle>{editing === "new" ? "Tambah Pengguna" : "Edit Pengguna"}</DialogTitle><DialogDescription>{editing === "new" ? "Akun ini bisa langsung dipakai untuk login ke aplikasi." : "Kosongkan password kalau tidak ingin menggantinya."}</DialogDescription></DialogHeader>{editing && <form onSubmit={submit} className="space-y-4"><Field label="Nama"><Input name="name" required defaultValue={editing === "new" ? "" : editing.name} className="h-11"/></Field><Field label="Email"><Input name="email" type="email" required defaultValue={editing === "new" ? "" : editing.email} className="h-11"/></Field><Field label={editing === "new" ? "Password *" : "Password Baru (opsional)"}><Input name="password" type="password" minLength={6} required={editing === "new"} placeholder={editing === "new" ? "Minimal 6 karakter" : "Kosongkan jika tidak diganti"} className="h-11"/></Field><div className="grid grid-cols-2 gap-3"><Field label="Peran"><Select name="roleId" required defaultValue={editing === "new" ? "role-cashier" : editing.roleId}><SelectTrigger className="h-11 w-full"><SelectValue/></SelectTrigger><SelectContent>{data.roles.map((role) => <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>)}</SelectContent></Select></Field><Field label="Cabang"><Select name="branchId" defaultValue={editing === "new" ? branches[0]?.id : editing.branchId || "all"}><SelectTrigger className="h-11 w-full"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="all">Semua Cabang</SelectItem>{branches.map((branch) => <SelectItem key={branch.id} value={branch.id}>{branch.name}</SelectItem>)}</SelectContent></Select></Field></div><label className="flex items-center gap-2 text-sm font-semibold"><Checkbox name="isActive" defaultChecked={editing === "new" ? true : Boolean(editing.isActive)}/> Akun aktif</label><DialogFooter><Button type="button" variant="outline" onClick={() => setEditing(null)}>Batal</Button><Button disabled={saving} className="bg-[#991b1b] hover:bg-[#7f1d1d]">{saving && <Loader2 className="animate-spin"/>} Simpan Akses</Button></DialogFooter></form>}</DialogContent></Dialog>
   </div>;
 }

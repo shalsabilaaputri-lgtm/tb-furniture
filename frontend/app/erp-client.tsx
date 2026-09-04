@@ -193,7 +193,7 @@ export function ErpClient({ user }: { user: { name: string; email: string } }) {
           {view === "finance" && <FinancePanel data={data} branch={branch} open={() => setExpenseModal(true)} reload={load} />}
           {view === "branches" && <BranchesView data={data} />}
           {view === "attendance" && <AttendancePanel data={data} branch={branch} reload={load} />}
-          {view === "users" && <UserAccessPanel branches={data.branches} />}
+          {view === "users" && <UserAccessPanel branches={data.branches} isOwner={data.currentUser.roleCode === "OWNER"} />}
           {view === "performance" && <PerformanceView data={data} />}
         </>}
       </main>
