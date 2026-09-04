@@ -38,10 +38,11 @@ export async function GET() {
         LEFT JOIN (SELECT sale_id,SUM(cost_price*quantity) AS totalCost FROM sale_items GROUP BY sale_id) cost ON cost.sale_id=s.id
         GROUP BY b.id ORDER BY b.id`),
       d1.prepare(`SELECT s.id,s.invoice_number AS invoiceNumber,s.branch_id AS branchId,b.short_name AS branchName,
-        s.customer_id AS customerId,COALESCE(c.name,'Customer Umum') AS customerName,
+        s.customer_id AS customerId,COALESCE(c.name,NULLIF(s.customer_name,''),'Customer Umum') AS customerName,
         COALESCE(NULLIF(s.customer_phone,''),c.whatsapp,'') AS customerPhone,
         s.subtotal,s.discount,s.delivery_distance AS deliveryDistance,s.delivery_fee AS deliveryFee,
         s.delivery_approval AS deliveryApproval,s.total,s.payment_method AS paymentMethod,s.paid_amount AS paidAmount,
+        s.credit_due_rule AS creditDueRule,s.credit_due_date AS creditDueDate,
         s.status,s.user_email AS userEmail,s.created_at AS createdAt
         FROM sales s JOIN branches b ON b.id=s.branch_id LEFT JOIN customers c ON c.id=s.customer_id
         ORDER BY s.created_at DESC,s.rowid DESC LIMIT 50`),

@@ -17,8 +17,12 @@ export async function POST(request: Request) {
       deliveryFee?: number;
       ownerDeliveryApproval?: boolean;
       customerPhone?: string;
+      customerName?: string;
+      customerCreditLimit?: number;
       paymentMethod?: string;
       paidAmount?: number;
+      creditDueRule?: "BEFORE_DELIVERY" | "AFTER_DELIVERY" | "DATE";
+      creditDueDate?: string;
     };
     const branchId = body.branchId?.trim();
     const submittedItems = body.items ?? [];
@@ -85,20 +89,49 @@ export async function POST(request: Request) {
     const paymentMethod = String(body.paymentMethod || "Cash");
     const isCredit = paymentMethod === "Piutang";
     const paidAmount = isCredit ? Math.max(0, Math.min(total, Math.round(Number(body.paidAmount) || 0))) : total;
-
-    if (isCredit && !body.customerId) {
-      return Response.json({ error: "Penjualan piutang harus memilih customer." }, { status: 400 });
+    let customerId = body.customerId?.trim() || "";
+    let customerName = String(body.customerName || "").trim();
+    const customerPhone = String(body.customerPhone || "").trim();
+    const dueRule = isCredit ? body.creditDueRule : undefined;
+    const dueDate = dueRule === "DATE" ? String(body.creditDueDate || "").trim() : null;
+    if (isCredit && !["BEFORE_DELIVERY", "AFTER_DELIVERY", "DATE"].includes(dueRule || "")) {
+      return Response.json({ error: "Pilih batas pembayaran piutang." }, { status: 400 });
     }
-    if (isCredit && body.customerId) {
-      const customer = await d1.prepare("SELECT credit_limit AS creditLimit,outstanding FROM customers WHERE id=?").bind(body.customerId).first<any>();
-      if (!customer || Number(customer.outstanding) + (total - paidAmount) > Number(customer.creditLimit)) {
-        return Response.json({ error: "Transaksi melebihi batas kredit customer dan memerlukan persetujuan." }, { status: 409 });
+    if (dueRule === "DATE" && !/^\d{4}-\d{2}-\d{2}$/.test(dueDate || "")) {
+      return Response.json({ error: "Tanggal jatuh tempo piutang belum valid." }, { status: 400 });
+    }
+    let customer: any = null;
+    let newCustomer = false;
+    if (isCredit && !customerId) {
+      if (!customerName || !customerPhone.replace(/\D/g, "")) {
+        return Response.json({ error: "Piutang wajib diisi nama dan nomor WhatsApp customer." }, { status: 400 });
       }
+      customer = await d1.prepare("SELECT id,name,credit_limit AS creditLimit,outstanding FROM customers WHERE whatsapp=?").bind(customerPhone).first<any>();
+      if (customer) {
+        customerId = String(customer.id);
+        customerName = String(customer.name);
+      } else {
+        customerId = crypto.randomUUID();
+        newCustomer = true;
+        customer = { creditLimit: Math.max(total, Math.round(Number(body.customerCreditLimit) || 0)), outstanding: 0 };
+      }
+    } else if (customerId) {
+      customer = await d1.prepare("SELECT id,name,credit_limit AS creditLimit,outstanding FROM customers WHERE id=?").bind(customerId).first<any>();
+      if (!customer) return Response.json({ error: "Customer tidak ditemukan." }, { status: 404 });
+      customerName = String(customer.name);
+    }
+    if (isCredit && (!customer || Number(customer.outstanding) + (total - paidAmount) > Number(customer.creditLimit))) {
+      return Response.json({ error: "Transaksi melebihi batas kredit customer dan memerlukan persetujuan." }, { status: 409 });
     }
 
     const saleId = crypto.randomUUID();
     const invoiceNumber = createReference(`INV-${branchId.toUpperCase()}`);
+    const invoiceToken = crypto.randomUUID();
     const statements: any[] = [];
+    if (newCustomer) {
+      statements.push(d1.prepare(`INSERT INTO customers (id,name,whatsapp,type,credit_limit,outstanding)
+        VALUES (?,?,?,'Ecer',?,0)`).bind(customerId, customerName, customerPhone, Number(customer.creditLimit)));
+    }
     for (const item of resolved) {
       statements.push(d1.prepare("UPDATE stocks SET physical_qty=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND physical_qty=?").bind(item.after, item.stockId, item.before));
     }
@@ -107,10 +140,10 @@ export async function POST(request: Request) {
     const conditionBindings = resolved.flatMap((item) => [item.stockId, item.after]);
     statements.push(
       d1.prepare(`INSERT INTO sales
-        (id,invoice_number,branch_id,customer_id,subtotal,discount,delivery_distance,delivery_fee,delivery_approval,customer_phone,total,payment_method,paid_amount,status,user_email)
-        SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+        (id,invoice_number,branch_id,customer_id,customer_name,subtotal,discount,delivery_distance,delivery_fee,delivery_approval,customer_phone,total,payment_method,paid_amount,credit_due_rule,credit_due_date,invoice_token,status,user_email)
+        SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
         WHERE (SELECT COUNT(*) FROM stocks WHERE ${conditions})=?`)
-        .bind(saleId, invoiceNumber, branchId, body.customerId || null, subtotal, discount, deliveryDistance, deliveryFee, deliveryApproval, String(body.customerPhone || ""), total, paymentMethod, paidAmount, isCredit && paidAmount < total ? "PARTIAL" : "PAID", user.email, ...conditionBindings, resolved.length),
+        .bind(saleId, invoiceNumber, branchId, customerId || null, customerName || "Customer Umum", subtotal, discount, deliveryDistance, deliveryFee, deliveryApproval, customerPhone, total, paymentMethod, paidAmount, dueRule || null, dueDate, invoiceToken, isCredit && paidAmount < total ? "PARTIAL" : "PAID", user.email, ...conditionBindings, resolved.length),
     );
 
     for (const item of resolved) {
@@ -130,14 +163,14 @@ export async function POST(request: Request) {
       statements.push(d1.prepare("INSERT INTO payments (id,sale_id,method,amount,reference) VALUES (?,?,?,?,?)")
         .bind(crypto.randomUUID(), saleId, paymentMethod, paidAmount, ""));
     }
-    if (isCredit && body.customerId && total > paidAmount) {
-      statements.push(d1.prepare("UPDATE customers SET outstanding=outstanding+? WHERE id=?").bind(total - paidAmount, body.customerId));
+    if (isCredit && customerId && total > paidAmount) {
+      statements.push(d1.prepare("UPDATE customers SET outstanding=outstanding+? WHERE id=?").bind(total - paidAmount, customerId));
     }
     statements.push(d1.prepare("INSERT INTO audit_logs (id,user_email,branch_id,module,action,reference_number,details) VALUES (?,?,?,'Sales','Transaksi POS',?,?)")
       .bind(crypto.randomUUID(), user.email, branchId, invoiceNumber, `Total ${total}`));
 
     await d1.batch(statements);
-    return Response.json({ ok: true, invoiceNumber, total, paidAmount, deliveryFee, deliveryDistance, deliveryApproval }, { status: 201 });
+    return Response.json({ ok: true, invoiceNumber, invoiceToken, customerId: customerId || null, customerName: customerName || "Customer Umum", total, paidAmount, deliveryFee, deliveryDistance, deliveryApproval, creditDueRule: dueRule || null, creditDueDate: dueDate }, { status: 201 });
   } catch (error) {
     return apiError(error);
   }

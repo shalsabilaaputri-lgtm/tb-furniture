@@ -20,7 +20,7 @@ type ReceiptTransaction = {
   id: string; invoiceNumber: string; branchId: string; branchName: string; customerId?: string;
   customerName: string; customerPhone?: string; subtotal: number; discount: number;
   deliveryDistance?: number; deliveryFee?: number; deliveryApproval?: string; total: number;
-  paymentMethod: string; paidAmount: number; status: string; createdAt: string;
+  paymentMethod: string; paidAmount: number; creditDueRule?: string | null; creditDueDate?: string | null; status: string; createdAt: string;
   items: Array<{ saleId: string; productId: string; productName: string; quantity: number; unit: string; unitPrice: number; lineTotal: number }>;
 };
 
@@ -41,7 +41,7 @@ function normalizePhone(value: string) {
   return phone;
 }
 
-function whatsappUrl(transaction: ReceiptTransaction) {
+function whatsappUrl(transaction: ReceiptTransaction, invoiceUrl: string) {
   const lines = transaction.items.map((item) => `• ${item.productName}\n  ${qty.format(item.quantity)} ${item.unit} × ${rupiah.format(item.unitPrice)} = ${rupiah.format(item.lineTotal)}`).join("\n");
   const message = [
     "*TB PERMATA KERAMIK*", transaction.branchName, "",
@@ -50,7 +50,9 @@ function whatsappUrl(transaction: ReceiptTransaction) {
     `Diskon: ${rupiah.format(transaction.discount)}`,
     `Ongkir: ${rupiah.format(transaction.deliveryFee || 0)}`,
     `*TOTAL: ${rupiah.format(transaction.total)}*`,
-    `Pembayaran: ${transaction.paymentMethod}`, "", "Terima kasih sudah berbelanja.",
+    `Pembayaran: ${transaction.paymentMethod}`,
+    transaction.paymentMethod === "Piutang" ? `DP: ${rupiah.format(transaction.paidAmount)}\nSisa piutang: ${rupiah.format(transaction.total - transaction.paidAmount)}\nBatas bayar: ${transaction.creditDueRule === "BEFORE_DELIVERY" ? "Sebelum barang dikirim" : transaction.creditDueRule === "AFTER_DELIVERY" ? "Setelah barang dikirim" : transaction.creditDueDate || "-"}` : "",
+    "", `Invoice PDF: ${invoiceUrl}`, "Terima kasih sudah berbelanja.",
   ].join("\n");
   return `https://wa.me/${normalizePhone(transaction.customerPhone || "")}?text=${encodeURIComponent(message)}`;
 }
@@ -65,8 +67,13 @@ export function PosPanel({ data, initialBranch, reload, printReceipt, canApprove
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [customerId, setCustomerId] = useState("walk-in");
+  const [walkInName, setWalkInName] = useState("");
   const [walkInPhone, setWalkInPhone] = useState("");
   const [method, setMethod] = useState("Cash");
+  const [downPayment, setDownPayment] = useState(0);
+  const [creditDueRule, setCreditDueRule] = useState<"BEFORE_DELIVERY" | "AFTER_DELIVERY" | "DATE">("DATE");
+  const [creditDueDate, setCreditDueDate] = useState("");
+  const [creditLimit, setCreditLimit] = useState(0);
   const [discount, setDiscount] = useState(0);
   const [distance, setDistance] = useState(0);
   const [manualFee, setManualFee] = useState(0);
@@ -74,6 +81,7 @@ export function PosPanel({ data, initialBranch, reload, printReceipt, canApprove
   const [saving, setSaving] = useState(false);
 
   const customer = data.customers.find((item) => item.id === customerId);
+  const customerName = customerId === "walk-in" ? walkInName.trim() || "Customer Umum" : customer?.name ?? "Customer";
   const customerPhone = customerId === "walk-in" ? walkInPhone : customer?.whatsapp ?? "";
   const products = useMemo(() => data.products.filter((product) =>
     [product.name, product.sku, product.barcode, product.brand].some((value) => value?.toLowerCase().includes(search.toLowerCase()))
@@ -105,6 +113,9 @@ export function PosPanel({ data, initialBranch, reload, printReceipt, canApprove
     if (!cart.length) return toast.error("Keranjang masih kosong.");
     if (distance > 20 && !ownerApproval) return toast.error("Ongkir lebih dari 20 km harus disetujui owner.");
     if (mode === "whatsapp" && !normalizePhone(customerPhone)) return toast.error("Nomor WhatsApp pelanggan belum diisi.");
+    if (method === "Piutang" && (!walkInName.trim() && customerId === "walk-in")) return toast.error("Nama customer wajib untuk penjualan piutang.");
+    if (method === "Piutang" && !normalizePhone(customerPhone)) return toast.error("Nomor WhatsApp customer wajib untuk piutang.");
+    if (method === "Piutang" && creditDueRule === "DATE" && !creditDueDate) return toast.error("Pilih tanggal jatuh tempo piutang.");
     const waWindow = mode === "whatsapp" ? window.open("about:blank", "_blank") : null;
     setSaving(true);
     try {
@@ -112,20 +123,21 @@ export function PosPanel({ data, initialBranch, reload, printReceipt, canApprove
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          branchId, customerId: customerId === "walk-in" ? null : customerId, customerPhone,
+          branchId, customerId: customerId === "walk-in" ? null : customerId, customerName, customerPhone, customerCreditLimit: creditLimit,
           items: cart.map((item) => ({ productId: item.product.id, quantity: item.quantity, unitPrice: item.unitPrice })),
           discount: safeDiscount, deliveryDistance: distance, deliveryFee,
-          ownerDeliveryApproval: ownerApproval, paymentMethod: method, paidAmount: method === "Piutang" ? 0 : total,
+          ownerDeliveryApproval: ownerApproval, paymentMethod: method, paidAmount: method === "Piutang" ? downPayment : total,
+          creditDueRule: method === "Piutang" ? creditDueRule : undefined, creditDueDate: method === "Piutang" && creditDueRule === "DATE" ? creditDueDate : undefined,
         }),
       });
       const transaction: ReceiptTransaction = {
         id: result.invoiceNumber, invoiceNumber: result.invoiceNumber, branchId,
         branchName: data.branches.find((branch) => branch.id === branchId)?.shortName ?? "",
-        customerId: customerId === "walk-in" ? undefined : customerId,
-        customerName: customerId === "walk-in" ? "Customer Umum" : customer?.name ?? "Customer",
+        customerId: result.customerId || undefined,
+        customerName: result.customerName || customerName,
         customerPhone, subtotal, discount: safeDiscount, deliveryDistance: distance,
         deliveryFee: result.deliveryFee, deliveryApproval: result.deliveryApproval, total: result.total,
-        paymentMethod: method, paidAmount: result.paidAmount,
+        paymentMethod: method, paidAmount: result.paidAmount, creditDueRule: result.creditDueRule, creditDueDate: result.creditDueDate,
         status: method === "Piutang" ? "PARTIAL" : "PAID", createdAt: new Date().toISOString(),
         items: cart.map((item) => ({
           saleId: result.invoiceNumber, productId: item.product.id, productName: item.product.name,
@@ -135,8 +147,10 @@ export function PosPanel({ data, initialBranch, reload, printReceipt, canApprove
       };
       toast.success(`Transaksi ${result.invoiceNumber} berhasil disimpan.`);
       if (mode === "print") printReceipt(transaction);
-      if (mode === "whatsapp" && waWindow) waWindow.location.href = whatsappUrl(transaction);
-      setCart([]); setDiscount(0); setDistance(0); setManualFee(0); setOwnerApproval(false);
+      const invoiceUrl = `${window.location.origin}/api/invoice/${encodeURIComponent(result.invoiceNumber)}?token=${encodeURIComponent(result.invoiceToken)}`;
+      if (mode === "whatsapp" && waWindow) waWindow.location.href = whatsappUrl(transaction, invoiceUrl);
+      toast.success("Invoice PDF siap dibuka dan dibagikan.", { action: { label: "Buka PDF", onClick: () => window.open(invoiceUrl, "_blank") } });
+      setCart([]); setDiscount(0); setDistance(0); setManualFee(0); setOwnerApproval(false); setDownPayment(0); setCreditDueDate(""); setCreditLimit(0);
       await reload();
     } catch (error) {
       waWindow?.close();
@@ -187,7 +201,15 @@ export function PosPanel({ data, initialBranch, reload, printReceipt, canApprove
           <Select value={customerId} onValueChange={setCustomerId}><SelectTrigger className="h-11 w-full bg-white"><Users className="size-4"/><SelectValue/></SelectTrigger><SelectContent><SelectItem value="walk-in">Customer Umum</SelectItem>{data.customers.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent></Select>
           <Select value={method} onValueChange={setMethod}><SelectTrigger className="h-11 w-full bg-white"><CreditCard className="size-4"/><SelectValue/></SelectTrigger><SelectContent>{["Cash","Transfer","QRIS","Debit","Piutang"].map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select>
         </div>
+        <Input value={customerId === "walk-in" ? walkInName : customerName} onChange={(event) => customerId === "walk-in" && setWalkInName(event.target.value)} readOnly={customerId !== "walk-in"} className="h-10 bg-white" placeholder="Nama customer"/>
         <Input value={customerPhone} onChange={(event) => customerId === "walk-in" && setWalkInPhone(event.target.value)} readOnly={customerId !== "walk-in"} className="h-10 bg-white" placeholder="Nomor WhatsApp pelanggan, contoh 0812…"/>
+        {method === "Piutang" && <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
+          <p className="text-sm font-bold text-amber-950">Detail piutang</p>
+          <div className="grid grid-cols-2 gap-2"><label className="space-y-1 text-xs font-semibold text-slate-700"><span>DP (Rp)</span><Input type="number" min="0" max={total} value={downPayment || ""} onChange={(event) => setDownPayment(Math.min(total, Math.max(0, Number(event.target.value))))} className="h-10 bg-white" placeholder="0"/></label><div className="rounded-lg border bg-white p-2 text-xs"><span className="text-slate-500">Sisa piutang</span><b className="mt-1 block text-base text-[#991b1b]">{rupiah.format(Math.max(0, total - downPayment))}</b></div></div>
+          {customerId === "walk-in" && <label className="space-y-1 text-xs font-semibold text-slate-700"><span>Batas kredit customer baru (Rp)</span><Input type="number" min={total-downPayment} value={creditLimit || ""} onChange={(event) => setCreditLimit(Math.max(0, Number(event.target.value)))} className="h-10 bg-white" placeholder={`Minimal ${rupiah.format(total-downPayment)}`}/></label>}
+          <label className="space-y-1 text-xs font-semibold text-slate-700"><span>Batas pembayaran</span><Select value={creditDueRule} onValueChange={(value) => setCreditDueRule(value as "BEFORE_DELIVERY" | "AFTER_DELIVERY" | "DATE")}><SelectTrigger className="h-10 w-full bg-white"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="BEFORE_DELIVERY">Sebelum barang dikirim</SelectItem><SelectItem value="AFTER_DELIVERY">Setelah barang dikirim</SelectItem><SelectItem value="DATE">Tanggal tertentu</SelectItem></SelectContent></Select></label>
+          {creditDueRule === "DATE" && <label className="space-y-1 text-xs font-semibold text-slate-700"><span>Tanggal jatuh tempo</span><Input type="date" value={creditDueDate} onChange={(event) => setCreditDueDate(event.target.value)} className="h-10 bg-white"/></label>}
+        </div>}
         <div className="grid grid-cols-2 gap-2">
           <label className="space-y-1 text-xs font-semibold text-slate-600"><span>Diskon Nominal (Rp)</span><Input type="number" min="0" max={subtotal} value={discount || ""} onChange={(event) => setDiscount(Math.max(0, Number(event.target.value)))} className="h-10 bg-white"/></label>
           <label className="space-y-1 text-xs font-semibold text-slate-600"><span>Jarak Kirim (km)</span><Input type="number" min="0" step=".1" value={distance || ""} onChange={(event) => { setDistance(Math.max(0, Number(event.target.value))); setOwnerApproval(false); }} className="h-10 bg-white"/></label>
