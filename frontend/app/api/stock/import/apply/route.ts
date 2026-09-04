@@ -1,8 +1,12 @@
 import { getDb } from "@/db";
 import { apiError, assertBranchAccess, requireApiUser } from "@/lib/api-auth";
+import { can } from "@/lib/access";
 import { createReference } from "@/lib/reference";
 
-type ImportItem = { productId?: string; quantity?: number; sourceName?: string };
+type ImportItem = {
+  productId?: string; createNew?: boolean; quantity?: number; sourceName?: string;
+  sku?: string; barcode?: string; brand?: string; series?: string; size?: string; unit?: string;
+};
 
 export async function POST(request: Request) {
   try {
@@ -13,17 +17,52 @@ export async function POST(request: Request) {
       return Response.json({ error: "Data impor belum lengkap atau terlalu banyak." }, { status: 400 });
     }
     assertBranchAccess(user, branchId);
+    const db = getDb();
+    const resolvedItems: Array<ImportItem & { productId: string }> = [];
+    const newItems = payload.items.filter((item) => !item.productId?.trim());
+    if (newItems.length && !can(user, "product.create")) {
+      return Response.json({ error: "Akun Anda boleh mengubah stok, tetapi tidak boleh membuat produk baru dari impor." }, { status: 403 });
+    }
+    if (newItems.some((item) => item.createNew === false || !item.sourceName?.trim())) {
+      return Response.json({ error: "Produk yang belum ada harus disimpan memakai nama yang tertulis di dokumen." }, { status: 400 });
+    }
+    if (newItems.length) {
+      const warehouses = await db.prepare("SELECT b.id AS branchId,MIN(w.id) AS warehouseId FROM branches b JOIN warehouses w ON w.branch_id=b.id WHERE b.is_active=1 GROUP BY b.id").all<{ branchId: string; warehouseId: string }>();
+      if (!warehouses.results.some((warehouse) => warehouse.branchId === branchId)) return Response.json({ error: "Gudang cabang tujuan belum tersedia." }, { status: 409 });
+      const created = new Map<ImportItem, string>();
+      const statements = [];
+      for (const item of newItems) {
+        const id = crypto.randomUUID();
+        const sku = createReference("IMP");
+        created.set(item, id);
+        statements.push(
+          db.prepare(`INSERT INTO products (id,sku,barcode,name,brand,category,series,size,unit,is_active)
+            VALUES (?,?,?,?,?,?,?,?,?,1)`).bind(
+            id, sku, item.barcode?.trim() || null, item.sourceName!.trim().slice(0, 240),
+            item.brand?.trim() || "Tanpa merek", "Impor Excel", item.series?.trim() || "", item.size?.trim() || "", item.unit?.trim() || "dus",
+          ),
+          db.prepare("INSERT INTO audit_logs (id,user_email,module,action,reference_number,details) VALUES (?,?,'Product','Tambah dari impor',?,?)")
+            .bind(crypto.randomUUID(), user.email, sku, item.sourceName!.trim().slice(0, 240)),
+        );
+        for (const warehouse of warehouses.results) {
+          statements.push(db.prepare(`INSERT INTO stocks (id,branch_id,warehouse_id,product_id,batch,shade,physical_qty,reserved_qty,damaged_qty)
+            VALUES (?,?,?,?, 'REGULER','STD',0,0,0)`).bind(crypto.randomUUID(), warehouse.branchId, warehouse.warehouseId, id));
+        }
+      }
+      await db.batch(statements);
+      for (const item of newItems) resolvedItems.push({ ...item, productId: created.get(item)! });
+    }
+    for (const item of payload.items) if (item.productId?.trim()) resolvedItems.push({ ...item, productId: item.productId.trim() });
     const grouped = new Map<string, { quantity: number; sourceName: string }>();
-    for (const item of payload.items) {
-      const productId = item.productId?.trim();
+    for (const item of resolvedItems) {
+      const productId = item.productId;
       const quantity = Number(item.quantity);
-      if (!productId || !Number.isFinite(quantity) || quantity <= 0) return Response.json({ error: "Setiap baris wajib memilih produk dan jumlah lebih dari nol." }, { status: 400 });
+      if (!Number.isFinite(quantity) || quantity <= 0) return Response.json({ error: "Setiap baris wajib memiliki jumlah lebih dari nol." }, { status: 400 });
       if (payload.direction === "ADJUST" && grouped.has(productId)) return Response.json({ error: "Stok opname hanya boleh memiliki satu baris untuk setiap produk." }, { status: 400 });
       const current = grouped.get(productId) || { quantity: 0, sourceName: item.sourceName?.trim() || "Impor dokumen" };
       current.quantity += quantity;
       grouped.set(productId, current);
     }
-    const db = getDb();
     const rows = [] as Array<{ productId: string; quantity: number; sourceName: string; stock: { id: string; warehouseId: string; physicalQty: number; reservedQty: number; damagedQty: number } }>;
     for (const [productId, item] of grouped) {
       const stock = await db.prepare(`SELECT id,warehouse_id AS warehouseId,physical_qty AS physicalQty,reserved_qty AS reservedQty,damaged_qty AS damagedQty

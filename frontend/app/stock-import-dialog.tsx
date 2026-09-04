@@ -11,15 +11,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 
 type Branch = { id: string; name: string };
-type Product = { id: string; sku: string; name: string; unit: string };
-type DraftRow = { sourceName: string; sku: string; barcode: string; quantity: number; unit: string; productId: string | null; productName: string | null; status: "MATCHED" | "REVIEW" };
+type DraftRow = { sourceName: string; sku: string; barcode: string; quantity: number; unit: string; brand: string; series: string; size: string; productId: string | null; productName: string | null; candidates: Array<{ id: string; name: string; sku: string }>; status: "MATCHED" | "OVERLAP" | "NEW" };
 type ImportDirection = "IN" | "OUT" | "ADJUST";
 type Draft = { sourceName: string; direction: ImportDirection; reference: string; rows: DraftRow[]; privacy: string };
 
 export function StockImportDialog({
-  open, close, branches, products, defaultBranch, reload,
+  open, close, branches, defaultBranch, reload,
 }: {
-  open: boolean; close: () => void; branches: Branch[]; products: Product[]; defaultBranch: string; reload: () => Promise<void>;
+  open: boolean; close: () => void; branches: Branch[]; defaultBranch: string; reload: () => Promise<void>;
 }) {
   const [branchId, setBranchId] = useState(defaultBranch === "all" ? branches[0]?.id || "" : defaultBranch);
   const [direction, setDirection] = useState<ImportDirection>("IN");
@@ -53,20 +52,20 @@ export function StockImportDialog({
     finally { setParsing(false); }
   };
 
-  const setProduct = (index: number, productId: string) => setDraft((current) => current && {
+  const setOverlapDecision = (index: number, productId: string) => setDraft((current) => current && {
     ...current,
     rows: current.rows.map((row, rowIndex) => rowIndex === index ? {
       ...row,
       productId: productId || null,
-      productName: products.find((product) => product.id === productId)?.name || null,
-      status: productId ? "MATCHED" : "REVIEW",
+      productName: row.candidates.find((candidate) => candidate.id === productId)?.name || null,
+      status: productId ? "MATCHED" : "NEW",
     } : row),
   });
   const setQuantity = (index: number, quantity: string) => setDraft((current) => current && {
     ...current,
     rows: current.rows.map((row, rowIndex) => rowIndex === index ? { ...row, quantity: Number(quantity) } : row),
   });
-  const unresolved = draft?.rows.some((row) => !row.productId || !Number.isFinite(row.quantity) || row.quantity <= 0) ?? false;
+  const unresolved = draft?.rows.some((row) => !Number.isFinite(row.quantity) || row.quantity <= 0) ?? false;
 
   const apply = async () => {
     if (!draft || unresolved) return;
@@ -74,7 +73,7 @@ export function StockImportDialog({
     try {
       const response = await fetch("/api/stock/import/apply", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ branchId, direction, sourceName: draft.sourceName, reference: draft.reference, items: draft.rows }),
+        body: JSON.stringify({ branchId, direction, sourceName: draft.sourceName, reference: draft.reference, items: draft.rows.map((row) => ({ ...row, createNew: !row.productId })) }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Stok tidak dapat diperbarui.");
@@ -101,8 +100,8 @@ export function StockImportDialog({
         <DialogFooter><Button type="button" variant="outline" onClick={closeDialog}>Batal</Button><Button disabled={parsing || !branchId} className="bg-[#991b1b] hover:bg-[#7f1d1d]">{parsing ? <Loader2 className="animate-spin" /> : <FileScan />} Baca berkas</Button></DialogFooter>
       </form> : <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-50 p-3 text-sm"><div><b>{draft.sourceName}</b><p className="text-xs text-slate-500">{draft.privacy}</p></div><Badge className={direction === "IN" ? "bg-emerald-600" : direction === "OUT" ? "bg-red-600" : "bg-blue-600"}>{direction === "IN" ? "Barang masuk" : direction === "OUT" ? "Barang keluar" : "Stok opname"}</Badge></div>
-        <div className="overflow-x-auto rounded-xl border"><table className="w-full min-w-[680px] text-sm"><thead className="bg-slate-50 text-left text-xs text-slate-500"><tr><th className="p-3">Tertulis di dokumen</th><th className="p-3">Produk sistem</th><th className="p-3">{direction === "ADJUST" ? "Stok fisik" : "Jumlah"}</th><th className="p-3">Status</th></tr></thead><tbody>{draft.rows.map((row, index) => <tr key={`${row.sourceName}-${index}`} className="border-t align-top"><td className="p-3"><b>{row.sourceName}</b><p className="text-xs text-slate-500">{row.sku || row.barcode || "tanpa SKU/barcode"}</p></td><td className="p-3"><Select value={row.productId || "unmatched"} onValueChange={(value) => setProduct(index, value === "unmatched" ? "" : value)}><SelectTrigger className="w-[280px]"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="unmatched">Pilih produk…</SelectItem>{products.map((product) => <SelectItem key={product.id} value={product.id}>{product.sku} — {product.name}</SelectItem>)}</SelectContent></Select></td><td className="p-3"><Input value={Number.isFinite(row.quantity) ? row.quantity : ""} onChange={(event) => setQuantity(index, event.target.value)} type="number" min=".01" step=".01" className="w-28" /><span className="ml-2 text-xs text-slate-500">{row.unit}</span></td><td className="p-3"><Badge variant="secondary" className={row.productId ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}>{row.productId ? "Cocok" : "Perlu pilih"}</Badge></td></tr>)}</tbody></table></div>
-        {unresolved && <p className="text-sm text-amber-700">Pilih produk dan pastikan jumlah pada semua baris sebelum menerapkan stok.</p>}
+        <div className="overflow-x-auto rounded-xl border"><table className="w-full min-w-[680px] text-sm"><thead className="bg-slate-50 text-left text-xs text-slate-500"><tr><th className="p-3">Nama dari dokumen</th><th className="p-3">Konfirmasi bila mirip</th><th className="p-3">{direction === "ADJUST" ? "Stok fisik" : "Jumlah"}</th><th className="p-3">Status</th></tr></thead><tbody>{draft.rows.map((row, index) => <tr key={`${row.sourceName}-${index}`} className="border-t align-top"><td className="p-3"><b>{row.sourceName}</b><p className="text-xs text-slate-500">{row.sku || row.barcode || "Nama akan dipakai apa adanya"}</p></td><td className="p-3">{row.status === "OVERLAP" ? <Select value={row.productId || "new"} onValueChange={(value) => setOverlapDecision(index, value === "new" ? "" : value)}><SelectTrigger className="w-[320px]"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="new">Tidak, buat produk baru sesuai dokumen</SelectItem>{row.candidates.map((candidate) => <SelectItem key={candidate.id} value={candidate.id}>Ya, gunakan {candidate.name} ({candidate.sku})</SelectItem>)}</SelectContent></Select> : row.productId ? <span className="text-sm font-medium text-emerald-700">Cocok otomatis: {row.productName}</span> : <span className="text-sm text-slate-600">Akan dibuat baru dengan nama dokumen</span>}</td><td className="p-3"><Input value={Number.isFinite(row.quantity) ? row.quantity : ""} onChange={(event) => setQuantity(index, event.target.value)} type="number" min=".01" step=".01" className="w-28" /><span className="ml-2 text-xs text-slate-500">{row.unit}</span></td><td className="p-3"><Badge variant="secondary" className={row.productId ? "bg-emerald-50 text-emerald-700" : row.status === "OVERLAP" ? "bg-amber-50 text-amber-800" : "bg-blue-50 text-blue-700"}>{row.productId ? "Produk lama" : row.status === "OVERLAP" ? "Perlu konfirmasi" : "Produk baru"}</Badge></td></tr>)}</tbody></table></div>
+        {unresolved && <p className="text-sm text-amber-700">Pastikan jumlah pada semua baris lebih dari nol sebelum menerapkan stok.</p>}
         <DialogFooter><Button type="button" variant="outline" onClick={() => setDraft(null)}>Unggah ulang</Button><Button disabled={saving || unresolved} onClick={apply} className="bg-[#991b1b] hover:bg-[#7f1d1d]">{saving && <Loader2 className="animate-spin" />} Terapkan ke stok</Button></DialogFooter>
       </div>}
     </DialogContent>

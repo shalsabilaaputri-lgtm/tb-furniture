@@ -147,15 +147,25 @@ export async function POST(request: Request) {
       }) : [];
       const matches = directMatches.length ? directMatches : compositeMatches;
       const product = matches.length === 1 ? matches[0] : undefined;
+      const overlapping = product ? [] : products.results.filter((candidate) => {
+        if (brand && normalize(candidate.brand) !== brand) return false;
+        if (size && normalize(candidate.size) !== size) return false;
+        const candidateText = [candidate.name, candidate.series].map(normalize).filter(Boolean);
+        return [name, series].filter((item) => item.length >= 4).some((item) => candidateText.some((text) => text.includes(item) || item.includes(text)));
+      }).slice(0, 5);
       return {
         sourceName: line.name || line.sku || line.barcode || "Baris tanpa nama",
         sku: line.sku || "",
         barcode: line.barcode || "",
         quantity: Number(line.quantity),
         unit: line.unit || product?.unit || "",
+        brand: line.brand || "Tanpa merek",
+        series: line.series || "",
+        size: line.size || "",
         productId: product?.id || null,
         productName: product?.name || null,
-        status: product && line.quantity > 0 ? "MATCHED" : "REVIEW",
+        candidates: overlapping.map((candidate) => ({ id: candidate.id, name: candidate.name, sku: candidate.sku })),
+        status: product && line.quantity > 0 ? "MATCHED" : overlapping.length ? "OVERLAP" : "NEW",
       };
     }).filter((line) => line.quantity > 0);
     if (!mapped.length) return Response.json({ error: "Jumlah pada dokumen tidak valid. Gunakan kolom Jumlah/Qty untuk mutasi atau Stok untuk stok opname." }, { status: 422 });

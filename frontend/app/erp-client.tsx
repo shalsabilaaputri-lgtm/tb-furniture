@@ -200,7 +200,7 @@ export function ErpClient({ user }: { user: { name: string; email: string } }) {
       <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t bg-white p-1 shadow-[0_-8px_24px_rgba(15,23,42,.08)] md:hidden">{nav.filter((i) => ["dashboard","pos","transactions","stock"].includes(i.id)).map((i) => <button key={i.id} onClick={() => go(i.id)} className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-lg text-[11px] font-semibold ${view === i.id ? "bg-red-50 text-[#991b1b]" : "text-slate-500"}`}><i.icon className="size-5" /><span>{i.label.split(" ")[0]}</span></button>)}</nav>
     </SidebarInset>
     {data && <StockAdjustmentDialog open={stockModal} close={() => setStockModal(null)} data={data} defaultBranch={branch} reload={load} />}
-    {data && <StockImportDialog open={stockImportModal} close={() => setStockImportModal(false)} branches={data.branches} products={data.products} defaultBranch={branch} reload={load} />}
+    {data && <StockImportDialog open={stockImportModal} close={() => setStockImportModal(false)} branches={data.branches} defaultBranch={branch} reload={load} />}
     {data && <ProductDialog open={productModal} close={() => setProductModal(false)} reload={load} />}
     {data && <ReturnDialog open={returnModal} close={() => setReturnModal(false)} data={data} reload={load} />}
     {data && <ReceivableDialog open={receivableModal} close={() => setReceivableModal(false)} data={data} defaultBranch={branch} reload={load} />}
